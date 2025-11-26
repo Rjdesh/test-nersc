@@ -143,6 +143,8 @@ A prop is like an input or argument for a React component. They are used to make
 
 Your component should now look like this:
 
+{% raw %}
+
 ```jsx title="index.tsx"
 <PageHeader
   // CUSTOMIZE: the page title
@@ -156,6 +158,8 @@ Your component should now look like this:
 />
 ```
 
+{% endraw %}
+
 Save this file and you should see the new page titles in your browser at http://localhost:5175/solar-system.
 
 ### Filters
@@ -163,6 +167,8 @@ Save this file and you should see the new page titles in your browser at http://
 The filters are also defined in the `index.tsx` file so keep that file open for this next step. Locate the array towards the top of the file called `filterConfigs`. This array defines which filters to render, how they should render, and how they should connect to the data.
 
 Replace that whole array definition with one that works with our new data source:
+
+{% raw %}
 
 ```jsx title="index.tsx"
 // CUSTOMIZE: the filter definitions
@@ -179,6 +185,8 @@ const filterConfigs: FilterConfig[] = [
 ];
 ```
 
+{% endraw %}
+
 Save this file and you should see the new filter in your browser at http://localhost:5175/solar-system.
 
 ### Columns
@@ -186,6 +194,8 @@ Save this file and you should see the new filter in your browser at http://local
 The columns to display in the table are defined in the `DataView.tsx` component inside the `-components` directory (the same one where we defined the data source). Open up that file and locate the `<SciDataGrid />` component.
 
 Inside this component is a prop called `columns`. Replace the value of this prop with an array of column definitions for our new dataset:
+
+{% raw %}
 
 ```jsx title="DataView.tsx"
 // CUSTOMIZE: the table columns
@@ -217,6 +227,8 @@ columns={[
   }
 ]}
 ```
+
+{% endraw %}
 
 Save this file and you should see the new columns show up in the table in your browser at http://localhost:5175/solar-system.
 

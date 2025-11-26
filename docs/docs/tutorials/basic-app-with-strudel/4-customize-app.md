@@ -116,6 +116,8 @@ There are many ways to modify the styles of the elements in a component or on a 
 
 To change the background color of the `AppBar` add the `sx` prop and set the `backgroundColor` property to `primary.main`:
 
+{% raw %}
+
 ```jsx title="TopBar.tsx"
 <AppBar
   color="default"
@@ -130,9 +132,13 @@ To change the background color of the `AppBar` add the `sx` prop and set the `ba
 >
 ```
 
+{% endraw %}
+
 The `primary.main` string is a reference to the value in the `theme.palette` object in `src/theme.tsx`. You can reference any value in the theme's `palette` inside of the `sx` prop. You can also just as easily use an explicit color code.
 
 You may have noticed that the color of the navigation bar changed, but now the links are not very readable because they are also red. Use the `sx` prop to change the text of each `AppLink` component to white (`#ffffff`):
+
+{% raw %}
 
 ```jsx title="TopBar.tsx"
 <AppLink to="/" sx={{ color: '#ffffff' }}>
@@ -154,11 +160,15 @@ You may have noticed that the color of the navigation bar changed, but now the l
 </AppLink>
 ```
 
+{% endraw %}
+
 Refresh the page to see the new navigation bar.
 
 You can also use the `sx` prop to make advanced style changes like changing the hover state of an element. To do add a different style for the hover state, add a new property to the `sx` object called `'&:hover'`. You can then give this new property its own object of styles which tells the component how it should look when it is being hovered by a user's cursor.
 
 Add a hover state style to the Solar System `AppLink` so that its color is `secondary.light` on hover:
+
+{% raw %}
 
 ```jsx title="TopBar.tsx"
 <AppLink
@@ -173,6 +183,8 @@ Add a hover state style to the Solar System `AppLink` so that its color is `seco
   Solar System
 </AppLink>
 ```
+
+{% endraw %}
 
 Refresh the page and watch the Solar System link change color when you mouse over it.
 

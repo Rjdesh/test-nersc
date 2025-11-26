@@ -26,6 +26,8 @@ The table and charts live in `_layout/$id/_layout/results.tsx` inside the Task F
 
 Scan the components and elements in the final `return` statement for the component. There you will find a `<Grid>` component that contains two `<Plot>` components and one `<DataGrid>` component. Copy the whole `<Grid>` component from `<Grid>` to `</Grid>`. Make sure to always include the closing section of components when you copy them. This will look like `</Component>` for component that have inner children and `/>` for components that don't.
 
+{% raw %}
+
 ```jsx title="results.tsx"
 <Grid container spacing={4}>
   <Grid item sm={6}>
@@ -52,6 +54,8 @@ Scan the components and elements in the final `return` statement for the compone
 </Grid>
 ```
 
+{% endraw %}
+
 ### 4. Locate the destination file
 
 The comparison page of the Compare Data Task Flow lives in `_layout/compare.tsx`. In this example its parent directory would be named `second-taskflow`. Open this file. This is where we want to paste our new components.
@@ -59,6 +63,8 @@ The comparison page of the Compare Data Task Flow lives in `_layout/compare.tsx`
 ### 5. Paste the components
 
 Let's say you want to put these new components underneath the comparison data table but you want them to fill the same width (i.e. you want them to be in the same container). You will find the `<DataGrid>` component towards the bottom of the file. Paste the new components directly underneath the `<Paper>` component that wraps around the `<DataGrid>` but keep them inside of the `<Container>` component:
+
+{% raw %}
 
 ```jsx title="compare.tsx"
 <Container
@@ -116,11 +122,17 @@ Let's say you want to put these new components underneath the comparison data ta
 </Container>
 ```
 
+{% endraw %}
+
 Let's also make a small change to the top-most `<Grid>` component by adding some margin to the top:
+
+{% raw %}
 
 ```jsx title="compare.tsx"
 <Grid container spacing={4} marginTop={1}>
 ```
+
+{% endraw %}
 
 ### 6. Update the imports
 
@@ -147,6 +159,8 @@ In a real app, the data for these components would likely come from an API or ex
 
 Here is the line chart component with some example data plugged in:
 
+{% raw %}
+
 ```js title="compare.tsx"
 <Plot
   data={[
@@ -170,7 +184,11 @@ Here is the line chart component with some example data plugged in:
 />
 ```
 
+{% endraw %}
+
 And here is bar chart component with some example data plugged in:
+
+{% raw %}
 
 ```js title="compare.tsx"
 <Plot
@@ -185,7 +203,11 @@ And here is bar chart component with some example data plugged in:
 />
 ```
 
+{% endraw %}
+
 And finally, populate the `rows` prop and the `columns` prop of the `<DataGrid>` component with some example values like below:
+
+{% raw %}
 
 ```js title="compare.tsx"
 <DataGrid
@@ -259,3 +281,5 @@ And finally, populate the `rows` prop and the `columns` prop of the `<DataGrid>`
   disableRowSelectionOnClick
 />
 ```
+
+{% endraw %}

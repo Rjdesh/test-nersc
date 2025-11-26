@@ -52,6 +52,8 @@ In this example, you are no longer using the `data-inputs.tsx` page or the `inde
 
 You should also delete the "Data Inputs" step from the `<Stepper>` component in `settings.tsx`, `running.tsx`, and `results.tsx` which all live in `compute/_layout/$id/_layout`:
 
+{% raw %}
+
 ```jsx
 // Remove this code from `settings.tsx`, `running.tsx`, and `results.tsx`
 <Step key={taskflow.pages.dataInputs.title}>
@@ -66,6 +68,8 @@ You should also delete the "Data Inputs" step from the `<Stepper>` component in 
   </StepLabel>
 </Step>
 ```
+
+{% endraw %}
 
 ## Limitations and Next Steps
 
