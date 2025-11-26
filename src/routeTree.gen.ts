@@ -14,10 +14,13 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { Route as rootRoute } from './pages/__root';
 import { Route as IndexImport } from './pages/index';
+import { Route as UserJobPerformanceIndexImport } from './pages/user-job-performance/index';
 import { Route as SearchDataRepositoriesIndexImport } from './pages/search-data-repositories/index';
 import { Route as PlaygroundIndexImport } from './pages/playground/index';
 import { Route as MonitorActivitiesIndexImport } from './pages/monitor-activities/index';
 import { Route as ExploreDataIndexImport } from './pages/explore-data/index';
+import { Route as CenterPerformanceIndexImport } from './pages/center-performance/index';
+import { Route as UserJobPerformanceIdImport } from './pages/user-job-performance/$id';
 import { Route as SearchDataRepositoriesIdImport } from './pages/search-data-repositories/$id';
 import { Route as RunComputationLayoutImport } from './pages/run-computation/_layout';
 import { Route as MonitorActivitiesDetailImport } from './pages/monitor-activities/detail';
@@ -74,6 +77,12 @@ const IndexRoute = IndexImport.update({
   getParentRoute: () => rootRoute,
 } as any);
 
+const UserJobPerformanceIndexRoute = UserJobPerformanceIndexImport.update({
+  id: '/user-job-performance/',
+  path: '/user-job-performance/',
+  getParentRoute: () => rootRoute,
+} as any);
+
 const SearchDataRepositoriesIndexRoute =
   SearchDataRepositoriesIndexImport.update({
     id: '/search-data-repositories/',
@@ -96,6 +105,18 @@ const MonitorActivitiesIndexRoute = MonitorActivitiesIndexImport.update({
 const ExploreDataIndexRoute = ExploreDataIndexImport.update({
   id: '/explore-data/',
   path: '/explore-data/',
+  getParentRoute: () => rootRoute,
+} as any);
+
+const CenterPerformanceIndexRoute = CenterPerformanceIndexImport.update({
+  id: '/center-performance/',
+  path: '/center-performance/',
+  getParentRoute: () => rootRoute,
+} as any);
+
+const UserJobPerformanceIdRoute = UserJobPerformanceIdImport.update({
+  id: '/user-job-performance/$id',
+  path: '/user-job-performance/$id',
   getParentRoute: () => rootRoute,
 } as any);
 
@@ -311,6 +332,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SearchDataRepositoriesIdImport;
       parentRoute: typeof rootRoute;
     };
+    '/user-job-performance/$id': {
+      id: '/user-job-performance/$id';
+      path: '/user-job-performance/$id';
+      fullPath: '/user-job-performance/$id';
+      preLoaderRoute: typeof UserJobPerformanceIdImport;
+      parentRoute: typeof rootRoute;
+    };
+    '/center-performance/': {
+      id: '/center-performance/';
+      path: '/center-performance';
+      fullPath: '/center-performance';
+      preLoaderRoute: typeof CenterPerformanceIndexImport;
+      parentRoute: typeof rootRoute;
+    };
     '/explore-data/': {
       id: '/explore-data/';
       path: '/explore-data';
@@ -337,6 +372,13 @@ declare module '@tanstack/react-router' {
       path: '/search-data-repositories';
       fullPath: '/search-data-repositories';
       preLoaderRoute: typeof SearchDataRepositoriesIndexImport;
+      parentRoute: typeof rootRoute;
+    };
+    '/user-job-performance/': {
+      id: '/user-job-performance/';
+      path: '/user-job-performance';
+      fullPath: '/user-job-performance';
+      preLoaderRoute: typeof UserJobPerformanceIndexImport;
       parentRoute: typeof rootRoute;
     };
     '/compare-data/_layout/compare': {
@@ -571,10 +613,13 @@ export interface FileRoutesByFullPath {
   '/monitor-activities/detail': typeof MonitorActivitiesDetailRoute;
   '/run-computation': typeof RunComputationLayoutRouteWithChildren;
   '/search-data-repositories/$id': typeof SearchDataRepositoriesIdRoute;
+  '/user-job-performance/$id': typeof UserJobPerformanceIdRoute;
+  '/center-performance': typeof CenterPerformanceIndexRoute;
   '/explore-data': typeof ExploreDataIndexRoute;
   '/monitor-activities': typeof MonitorActivitiesIndexRoute;
   '/playground': typeof PlaygroundIndexRoute;
   '/search-data-repositories': typeof SearchDataRepositoriesIndexRoute;
+  '/user-job-performance': typeof UserJobPerformanceIndexRoute;
   '/compare-data/compare': typeof CompareDataLayoutCompareRoute;
   '/compare-data/new': typeof CompareDataLayoutNewRoute;
   '/contribute-data/new': typeof ContributeDataLayoutNewRoute;
@@ -599,10 +644,13 @@ export interface FileRoutesByTo {
   '/monitor-activities/detail': typeof MonitorActivitiesDetailRoute;
   '/run-computation': typeof RunComputationLayoutIndexRoute;
   '/search-data-repositories/$id': typeof SearchDataRepositoriesIdRoute;
+  '/user-job-performance/$id': typeof UserJobPerformanceIdRoute;
+  '/center-performance': typeof CenterPerformanceIndexRoute;
   '/explore-data': typeof ExploreDataIndexRoute;
   '/monitor-activities': typeof MonitorActivitiesIndexRoute;
   '/playground': typeof PlaygroundIndexRoute;
   '/search-data-repositories': typeof SearchDataRepositoriesIndexRoute;
+  '/user-job-performance': typeof UserJobPerformanceIndexRoute;
   '/compare-data/compare': typeof CompareDataLayoutCompareRoute;
   '/compare-data/new': typeof CompareDataLayoutNewRoute;
   '/contribute-data/new': typeof ContributeDataLayoutNewRoute;
@@ -628,10 +676,13 @@ export interface FileRoutesById {
   '/run-computation': typeof RunComputationRouteWithChildren;
   '/run-computation/_layout': typeof RunComputationLayoutRouteWithChildren;
   '/search-data-repositories/$id': typeof SearchDataRepositoriesIdRoute;
+  '/user-job-performance/$id': typeof UserJobPerformanceIdRoute;
+  '/center-performance/': typeof CenterPerformanceIndexRoute;
   '/explore-data/': typeof ExploreDataIndexRoute;
   '/monitor-activities/': typeof MonitorActivitiesIndexRoute;
   '/playground/': typeof PlaygroundIndexRoute;
   '/search-data-repositories/': typeof SearchDataRepositoriesIndexRoute;
+  '/user-job-performance/': typeof UserJobPerformanceIndexRoute;
   '/compare-data/_layout/compare': typeof CompareDataLayoutCompareRoute;
   '/compare-data/_layout/new': typeof CompareDataLayoutNewRoute;
   '/contribute-data/_layout/new': typeof ContributeDataLayoutNewRoute;
@@ -659,10 +710,13 @@ export interface FileRouteTypes {
     | '/monitor-activities/detail'
     | '/run-computation'
     | '/search-data-repositories/$id'
+    | '/user-job-performance/$id'
+    | '/center-performance'
     | '/explore-data'
     | '/monitor-activities'
     | '/playground'
     | '/search-data-repositories'
+    | '/user-job-performance'
     | '/compare-data/compare'
     | '/compare-data/new'
     | '/contribute-data/new'
@@ -686,10 +740,13 @@ export interface FileRouteTypes {
     | '/monitor-activities/detail'
     | '/run-computation'
     | '/search-data-repositories/$id'
+    | '/user-job-performance/$id'
+    | '/center-performance'
     | '/explore-data'
     | '/monitor-activities'
     | '/playground'
     | '/search-data-repositories'
+    | '/user-job-performance'
     | '/compare-data/compare'
     | '/compare-data/new'
     | '/contribute-data/new'
@@ -713,10 +770,13 @@ export interface FileRouteTypes {
     | '/run-computation'
     | '/run-computation/_layout'
     | '/search-data-repositories/$id'
+    | '/user-job-performance/$id'
+    | '/center-performance/'
     | '/explore-data/'
     | '/monitor-activities/'
     | '/playground/'
     | '/search-data-repositories/'
+    | '/user-job-performance/'
     | '/compare-data/_layout/compare'
     | '/compare-data/_layout/new'
     | '/contribute-data/_layout/new'
@@ -743,10 +803,13 @@ export interface RootRouteChildren {
   MonitorActivitiesDetailRoute: typeof MonitorActivitiesDetailRoute;
   RunComputationRoute: typeof RunComputationRouteWithChildren;
   SearchDataRepositoriesIdRoute: typeof SearchDataRepositoriesIdRoute;
+  UserJobPerformanceIdRoute: typeof UserJobPerformanceIdRoute;
+  CenterPerformanceIndexRoute: typeof CenterPerformanceIndexRoute;
   ExploreDataIndexRoute: typeof ExploreDataIndexRoute;
   MonitorActivitiesIndexRoute: typeof MonitorActivitiesIndexRoute;
   PlaygroundIndexRoute: typeof PlaygroundIndexRoute;
   SearchDataRepositoriesIndexRoute: typeof SearchDataRepositoriesIndexRoute;
+  UserJobPerformanceIndexRoute: typeof UserJobPerformanceIndexRoute;
 }
 
 const rootRouteChildren: RootRouteChildren = {
@@ -758,10 +821,13 @@ const rootRouteChildren: RootRouteChildren = {
   MonitorActivitiesDetailRoute: MonitorActivitiesDetailRoute,
   RunComputationRoute: RunComputationRouteWithChildren,
   SearchDataRepositoriesIdRoute: SearchDataRepositoriesIdRoute,
+  UserJobPerformanceIdRoute: UserJobPerformanceIdRoute,
+  CenterPerformanceIndexRoute: CenterPerformanceIndexRoute,
   ExploreDataIndexRoute: ExploreDataIndexRoute,
   MonitorActivitiesIndexRoute: MonitorActivitiesIndexRoute,
   PlaygroundIndexRoute: PlaygroundIndexRoute,
   SearchDataRepositoriesIndexRoute: SearchDataRepositoriesIndexRoute,
+  UserJobPerformanceIndexRoute: UserJobPerformanceIndexRoute,
 };
 
 export const routeTree = rootRoute
@@ -782,10 +848,13 @@ export const routeTree = rootRoute
         "/monitor-activities/detail",
         "/run-computation",
         "/search-data-repositories/$id",
+        "/user-job-performance/$id",
+        "/center-performance/",
         "/explore-data/",
         "/monitor-activities/",
         "/playground/",
-        "/search-data-repositories/"
+        "/search-data-repositories/",
+        "/user-job-performance/"
       ]
     },
     "/": {
@@ -848,6 +917,12 @@ export const routeTree = rootRoute
     "/search-data-repositories/$id": {
       "filePath": "search-data-repositories/$id.tsx"
     },
+    "/user-job-performance/$id": {
+      "filePath": "user-job-performance/$id.tsx"
+    },
+    "/center-performance/": {
+      "filePath": "center-performance/index.tsx"
+    },
     "/explore-data/": {
       "filePath": "explore-data/index.tsx"
     },
@@ -859,6 +934,9 @@ export const routeTree = rootRoute
     },
     "/search-data-repositories/": {
       "filePath": "search-data-repositories/index.tsx"
+    },
+    "/user-job-performance/": {
+      "filePath": "user-job-performance/index.tsx"
     },
     "/compare-data/_layout/compare": {
       "filePath": "compare-data/_layout/compare.tsx",

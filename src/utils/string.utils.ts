@@ -39,6 +39,8 @@ export const getTaskFlowRoutes = (flatRoutes: AnyRoute[]) => {
     if (
       pathParts.length === 1 &&
       pathParts[0] !== 'playground' &&
+      pathParts[0] !== 'center-performance' &&
+      pathParts[0] !== 'user-job-performance' &&
       pathParts[0] !== undefined &&
       lastCharacter === '/'
     ) {
@@ -53,7 +55,10 @@ export const getTopLevelRoutes = (flatRoutes: AnyRoute[]) => {
     const lastCharacter = route.fullPath[route.fullPath.length - 1];
     if (
       pathParts.length === 1 &&
-      (pathParts[0] === 'playground' || pathParts[0] === undefined) &&
+      (pathParts[0] === 'playground' ||
+        pathParts[0] === 'center-performance' ||
+        pathParts[0] === 'user-job-performance' ||
+        pathParts[0] === undefined) &&
       lastCharacter === '/'
     ) {
       return route;
