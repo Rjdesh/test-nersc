@@ -50,13 +50,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # This is necessary to fix a bug in GitHub Pages
       # See https://github.com/storybookjs/storybook/issues/20564
-      - name: Ensure .nojekyll at gh-pages root
-        run: |
-          git config user.name "github-actions-bot"
-          git config user.email "support+actions@github.com"
-          git fetch origin gh-pages || true
-          git checkout gh-pages || git checkout --orphan gh-pages
-          touch .nojekyll
-          git add .nojekyll
-          git commit -m "Add .nojekyll" || true
-          git push origin gh-pages
+      # - name: Ensure .nojekyll at gh-pages root
+      #   run: |
+      #     git config user.name "github-actions-bot"
+      #     git config user.email "support+actions@github.com"
+      #     git fetch origin gh-pages || true
+      #     git checkout gh-pages || git checkout --orphan gh-pages
+      #     touch .nojekyll
+      #     git add .nojekyll
+      #     git commit -m "Add .nojekyll" || true
+      #     git push origin gh-pages
