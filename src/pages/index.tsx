@@ -54,7 +54,7 @@ function Index() {
         <Container maxWidth="lg" sx={{ height: '100%' }}>
           <Stack alignItems="center" justifyContent="center" height="100%">
             <ImageWrapper height={60}>
-              <img src="strudel-logo-icon.png" />
+              <img src="/strudel-logo-icon.png" />
             </ImageWrapper>
             <Typography variant="h6" component="h1">
               You just started an app with STRUDEL!
