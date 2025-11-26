@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.2",
   "type": "module",
-  "homepage": "https://codytodonnell.github.io/strudel-kit/demo/",
+  "homepage": "https://rjdesh.github.io/test-nersc/",
   "scripts": {
     "start": "vite",
     "dev": "vite",
