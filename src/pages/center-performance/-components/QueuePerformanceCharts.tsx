@@ -17,6 +17,7 @@ import {
   Alert,
   AlertTitle,
   InputLabel,
+  Chip,
 } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { useState, useMemo } from 'react';
@@ -38,8 +39,9 @@ export function QueuePerformanceCharts() {
   const [machine, setMachine] = useState('perlmutter');
   const [arch, setArch] = useState('gpu');
   const [qos, setQos] = useState('regular');
+  const [dateRange, setDateRange] = useState<'24h' | '7d' | '30d'>('7d');
   const [startDate, setStartDate] = useState<Date>(
-    new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) // 14 days ago
+    new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // 7 days ago
   );
   const [endDate, setEndDate] = useState<Date>(new Date());
 
@@ -85,17 +87,51 @@ export function QueuePerformanceCharts() {
     return formatTableData(data.jobs_table);
   }, [data?.jobs_table]);
 
-  // Format date for display
+  // Handle date range change
+  const handleDateRangeChange = (range: '24h' | '7d' | '30d') => {
+    setDateRange(range);
+    const now = new Date();
+    let daysBack = 7;
+    
+    if (range === '24h') {
+      daysBack = 1;
+    } else if (range === '7d') {
+      daysBack = 7;
+    } else if (range === '30d') {
+      daysBack = 30;
+    }
+    
+    setStartDate(new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000));
+    setEndDate(now);
+  };
+
+  // Format date for display in chip
   const formatDateRange = () => {
     const start = startDate.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
+      year: 'numeric',
     });
     const end = endDate.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
+      year: 'numeric',
     });
     return `${start} - ${end}`;
+  };
+
+  // Get date range label
+  const getDateRangeLabel = (range: '24h' | '7d' | '30d') => {
+    switch (range) {
+      case '24h':
+        return 'Last 24 Hours';
+      case '7d':
+        return 'Last 7 Days';
+      case '30d':
+        return 'Last 30 Days';
+      default:
+        return 'Last 7 Days';
+    }
   };
 
   // Loading State
@@ -172,7 +208,8 @@ export function QueuePerformanceCharts() {
           </Box>
 
           {/* Filter Controls */}
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+            
             <FormControl size="small" sx={{ minWidth: 150 }}>
               <InputLabel id="select-label-machine">Machine</InputLabel>
               <Select
@@ -212,17 +249,31 @@ export function QueuePerformanceCharts() {
               </Select>
             </FormControl>
 
-            <Button variant="outlined" size="small" sx={{ ml: 'auto' }}>
-              Today
-            </Button>
-
-            <FormControl size="small" sx={{ minWidth: 150 }}>
-              <Select value={formatDateRange()} sx={{ bgcolor: 'white' }}>
-                <MenuItem value={formatDateRange()}>
-                  {formatDateRange()}
-                </MenuItem>
+            <FormControl size="small" sx={{ minWidth: 150, ml: 'auto' }}>
+              <InputLabel id="wait-time-date-range-label">Date Range</InputLabel>
+              <Select
+                value={dateRange}
+                labelId="wait-time-date-range-label"
+                id="wait-time-date-range-select"
+                label="Date Range"
+                onChange={(e) => handleDateRangeChange(e.target.value as '24h' | '7d' | '30d')}
+                sx={{ bgcolor: 'white' }}
+              >
+                <MenuItem value="24h">Last 24 Hours</MenuItem>
+                <MenuItem value="7d">Last 7 Days</MenuItem>
+                <MenuItem value="30d">Last 30 Days</MenuItem>
               </Select>
             </FormControl>
+
+            <Chip 
+              label={formatDateRange()} 
+              size="small" 
+              sx={{ 
+                bgcolor: '#D6E1E8',
+                color: '#49454F',
+                fontWeight: 500,
+              }} 
+            />
           </Box>
 
           {/* Wait Time Heatmap */}
@@ -242,10 +293,8 @@ export function QueuePerformanceCharts() {
                   ],
                   showscale: true,
                   zmin: 0,
-                  zmax: 96, 
-                  zauto: false,
+                  zmax: 96,
                   connectgaps: false,
-                  hoverongaps: false,
                   xgap: 1,  // Gap between cells horizontally
                   ygap: 1,  // Gap between cells vertically 
                   hovertemplate:
@@ -323,18 +372,34 @@ export function QueuePerformanceCharts() {
                   gap: 2,
                   mb: 2,
                   justifyContent: 'flex-end',
+                  alignItems: 'center',
                 }}
               >
-                <Button variant="outlined" size="small">
-                  Today
-                </Button>
+                
                 <FormControl size="small" sx={{ minWidth: 150 }}>
-                  <Select value={formatDateRange()} sx={{ bgcolor: 'white' }}>
-                    <MenuItem value={formatDateRange()}>
-                      {formatDateRange()}
-                    </MenuItem>
+                  <InputLabel id="jobs-table-date-range-label">Date Range</InputLabel>
+                  <Select
+                    value={dateRange}
+                    labelId="jobs-table-date-range-label"
+                    id="jobs-table-date-range-select"
+                    label="Date Range"
+                    onChange={(e) => handleDateRangeChange(e.target.value as '24h' | '7d' | '30d')}
+                    sx={{ bgcolor: 'white' }}
+                  >
+                    <MenuItem value="24h">Last 24 Hours</MenuItem>
+                    <MenuItem value="7d">Last 7 Days</MenuItem>
+                    <MenuItem value="30d">Last 30 Days</MenuItem>
                   </Select>
                 </FormControl>
+                <Chip 
+                  label={formatDateRange()} 
+                  size="small" 
+                  sx={{ 
+                    bgcolor: '#D6E1E8',
+                    color: '#49454F',
+                    fontWeight: 500,
+                  }} 
+                />
               </Box>
 
               <TableContainer>
@@ -404,7 +469,7 @@ export function QueuePerformanceCharts() {
           </Box>
 
           {/* Filter Controls */}
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
             <FormControl size="small" sx={{ minWidth: 150 }}>
               <InputLabel id="select-label-machine">Machine</InputLabel>
               <Select
@@ -444,17 +509,31 @@ export function QueuePerformanceCharts() {
               </Select>
             </FormControl>
 
-            <Button variant="outlined" size="small" sx={{ ml: 'auto' }}>
-              Today
-            </Button>
-
-            <FormControl size="small" sx={{ minWidth: 150 }}>
-              <Select value={formatDateRange()} sx={{ bgcolor: 'white' }}>
-                <MenuItem value={formatDateRange()}>
-                  {formatDateRange()}
-                </MenuItem>
+            <FormControl size="small" sx={{ minWidth: 150, ml: 'auto' }}>
+              <InputLabel id="jobs-date-range-label">Date Range</InputLabel>
+              <Select
+                value={dateRange}
+                labelId="jobs-date-range-label"
+                id="jobs-date-range-select"
+                label="Date Range"
+                onChange={(e) => handleDateRangeChange(e.target.value as '24h' | '7d' | '30d')}
+                sx={{ bgcolor: 'white' }}
+              >
+                <MenuItem value="24h">Last 24 Hours</MenuItem>
+                <MenuItem value="7d">Last 7 Days</MenuItem>
+                <MenuItem value="30d">Last 30 Days</MenuItem>
               </Select>
             </FormControl>
+
+            <Chip 
+              label={formatDateRange()} 
+              size="small" 
+              sx={{ 
+                bgcolor: '#D6E1E8',
+                color: '#49454F',
+                fontWeight: 500,
+              }} 
+            />
           </Box>
 
           {/* Queued Jobs Heatmap */}
@@ -474,10 +553,8 @@ export function QueuePerformanceCharts() {
                   ],
                   showscale: true,
                   zmin: 0,
-                  zmax: 4000, 
-                  zauto: false,
+                  zmax: 4000,
                   connectgaps: false,
-                  hoverongaps: false,
                   xgap: 1,  // Gap between cells horizontally
                   ygap: 1,  // Gap between cells vertically  
                   hovertemplate:
@@ -501,8 +578,8 @@ export function QueuePerformanceCharts() {
                   type: 'category',
                   // Force tick values to match your data
                   tickmode: 'array',
-                  tickvals: queueWaitHeatmapData.x,  // Use your actual x values
-                  ticktext: queueWaitHeatmapData.x.map(String),  // Convert to strings
+                  tickvals: queuedJobsHeatmapData.x,  // Use your actual x values
+                  ticktext: queuedJobsHeatmapData.x.map(String),  // Convert to strings
                 },
                 yaxis: {
                   title: 'Number of Nodes Requested',
@@ -556,18 +633,34 @@ export function QueuePerformanceCharts() {
                   gap: 2,
                   mb: 2,
                   justifyContent: 'flex-end',
+                  alignItems: 'center',
                 }}
               >
-                <Button variant="outlined" size="small">
-                  Today
-                </Button>
                 <FormControl size="small" sx={{ minWidth: 150 }}>
-                  <Select value={formatDateRange()} sx={{ bgcolor: 'white' }}>
-                    <MenuItem value={formatDateRange()}>
-                      {formatDateRange()}
-                    </MenuItem>
+                  <InputLabel id="table-date-range-label">Date Range</InputLabel>
+                  <Select
+                    value={dateRange}
+                    labelId="table-date-range-label"
+                    id="table-date-range-select"
+                    label="Date Range"
+                    onChange={(e) => handleDateRangeChange(e.target.value as '24h' | '7d' | '30d')}
+                    sx={{ bgcolor: 'white' }}
+                  >
+                    <MenuItem value="24h">Last 24 Hours</MenuItem>
+                    <MenuItem value="7d">Last 7 Days</MenuItem>
+                    <MenuItem value="30d">Last 30 Days</MenuItem>
                   </Select>
                 </FormControl>
+
+                <Chip 
+                  label={formatDateRange()} 
+                  size="small" 
+                  sx={{ 
+                    bgcolor: '#D6E1E8',
+                    color: '#49454F',
+                    fontWeight: 500,
+                  }} 
+                />
               </Box>
 
               <TableContainer>
