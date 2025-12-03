@@ -9,7 +9,8 @@ import {
   InputLabel,
   FormControl,
   MenuItem,
-  Select
+  Select,
+  Chip
 } from '@mui/material';
 
 interface DataPoint {
@@ -107,17 +108,54 @@ const PowerTimeSeriesPlot: React.FC<PowerTimeSeriesPlotProps> = ({ csvFilePath }
   }, [data, dateRange]);
 
   // Last updated time is the last available time in data
-    const lastUpdatedTime = useMemo(() => {
-        if (data.length === 0) return null;
-        
-        const maxTime = Math.max(...data.map(point => point.time));
-        return new Date(maxTime);
-        }, [data]);
+  const lastUpdatedTime = useMemo(() => {
+    if (data.length === 0) return null;
+    
+    const maxTime = Math.max(...data.map(point => point.time));
+    return new Date(maxTime);
+  }, [data]);
 
+  // Calculate start and end dates for the chip display
+  const dateRangeText = useMemo(() => {
+    if (filteredData.length === 0) return '';
+    
+    const times = filteredData.map(point => point.time);
+    const minTime = Math.min(...times);
+    const maxTime = Math.max(...times);
+    
+    const startDate = new Date(minTime);
+    const endDate = new Date(maxTime);
+    
+    const start = startDate.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    const end = endDate.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    
+    return `${start} - ${end}`;
+  }, [filteredData]);
 
   // Convert milliseconds to date objects for x-axis
   const dates = filteredData.map((point) => new Date(point.time));
   const powers = filteredData.map((point) => point.power);
+
+  //Hovertemplate for Power tooltip
+  const formattedHoverData = useMemo(() => {
+  return powers.map(power => {
+    if (power >= 1000000) {
+      return `${(power / 1000000).toFixed(2)} MW`;
+    } else if (power >= 1000) {
+      return `${(power / 1000).toFixed(2)} KW`;
+    } else {
+      return `${power.toFixed(2)} W`;
+    }
+  });
+}, [powers]);
 
   return (
     <Box
@@ -141,7 +179,7 @@ const PowerTimeSeriesPlot: React.FC<PowerTimeSeriesPlotProps> = ({ csvFilePath }
 
         {data.length > 0 && !loading && (
           <>
-            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
+            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
                 <FormControl size="small" sx={{ minWidth: 200 }}>
                     <InputLabel id="date-range-label">Date Range</InputLabel>
                     <Select
@@ -168,6 +206,16 @@ const PowerTimeSeriesPlot: React.FC<PowerTimeSeriesPlotProps> = ({ csvFilePath }
                     </MenuItem>
                     </Select>
                 </FormControl>
+                <Chip 
+                  label={dateRangeText} 
+                  size="small" 
+                  sx={{ 
+                    bgcolor: '#D6E1E8',
+                    color: '#49454F',
+                    fontWeight: 500,
+                    ml: 2,
+                  }} 
+                />
             </Box>
 
             <Box sx={{ width: '100%', height: '500px', mb: 3 }}>
@@ -180,6 +228,13 @@ const PowerTimeSeriesPlot: React.FC<PowerTimeSeriesPlotProps> = ({ csvFilePath }
                     mode: 'lines',
                     name: 'Power',
                     line: { color: '#2196f3', width: 2 },
+                    customdata: formattedHoverData,
+                    hovertemplate:
+                      '<b>Power:</b> %{customdata}<extra></extra>',
+                    hoverlabel: {
+                      bgcolor: '#444444',
+                      font: { color: 'white' },
+                    },
                   },
                 ]}
                 layout={{
@@ -189,13 +244,20 @@ const PowerTimeSeriesPlot: React.FC<PowerTimeSeriesPlotProps> = ({ csvFilePath }
                     type: 'date',
                     gridcolor: '#f0f0f0',
                     showgrid: true,
+                    spikecolor: '#bdbec1',
+                    spikethickness: 1,
+                    spikedash: 'dot',
+                    showline: true,
+                    linecolor: '#bdbec1',
+                    zeroline: false, 
                   },
                   yaxis: {
                     title: 'Power (W)',
                     gridcolor: '#f0f0f0',
                     showgrid: true,
+                    zeroline: false, 
                   },
-                  hovermode: 'closest',
+                  hovermode: 'x',
                   margin: { l: 50, r: 20, t: 20, b: 50 },
                   dragmode: 'zoom',
                 }}
