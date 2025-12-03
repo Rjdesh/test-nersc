@@ -1,1 +1,0 @@
-import{j as a,J as e,aE as r}from"./index-Cn0tmyp9.js";const t=s=>a.jsx(e,{variant:"determinate",sx:{height:10,borderRadius:5,[`&.${r.colorPrimary}`]:{backgroundColor:"neutral.dark"},[`& .${r.bar}`]:{borderRadius:5,backgroundColor:"success.light"}},...s});export{t as L};
