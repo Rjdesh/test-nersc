@@ -139,7 +139,7 @@ function CenterPerformance() {
       </Box>
 
       {/* Full System Power Usage */}
-      <PowerTimeSeriesPlot csvFilePath="/data/perlmutter-system-power-2025-05.csv" />
+      <PowerTimeSeriesPlot csvFilePath={`${import.meta.env.BASE_URL}data/perlmutter-system-power-2025-05.csv`} />
 
       {/* Daily Jobs Completed and Programs on NERSC */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
