@@ -120,20 +120,6 @@ export function QueuePerformanceCharts() {
     return `${start} - ${end}`;
   };
 
-  // Get date range label
-  const getDateRangeLabel = (range: '24h' | '7d' | '30d') => {
-    switch (range) {
-      case '24h':
-        return 'Last 24 Hours';
-      case '7d':
-        return 'Last 7 Days';
-      case '30d':
-        return 'Last 30 Days';
-      default:
-        return 'Last 7 Days';
-    }
-  };
-
   // Loading State
   if (isLoading) {
     return (
