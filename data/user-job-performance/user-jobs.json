@@ -1,0 +1,68 @@
+[
+    {
+        "Job ID": 46597792,
+        "User": "Prabhakar, Shreyas",
+        "Project": "m4659",
+        "Partition": "urgent_gpu_ss11",
+        "QOS": "gpu_interactive",
+        "Start Time": "2025-12-16 16:41",
+        "End Time": "2025-12-16 16:56",
+        "Hostname": "perlmutter gpu",
+        "Charged Node Hours": 0.26
+    },
+    {
+        "Job ID": 46598165,
+        "User": "Prabhakar, Shreyas",
+        "Project": "m4659",
+        "Partition": "urgent_gpu_ss11",
+        "QOS": "gpu_interactive",
+        "Start Time": "2025-12-16 16:56",
+        "End Time": "2025-12-16 17:27",
+        "Hostname": "perlmutter gpu",
+        "Charged Node Hours": 0.51
+    },
+    {
+        "Job ID": 46598851,
+        "User": "Prabhakar, Shreyas",
+        "Project": "m4659",
+        "Partition": "urgent_gpu_ss11",
+        "QOS": "gpu_interactive",
+        "Start Time": "2025-12-16 17:12",
+        "End Time": "2025-12-16 17:29",
+        "Hostname": "perlmutter gpu",
+        "Charged Node Hours": 0.29
+    },
+    {
+        "Job ID": 46599456,
+        "User": "Prabhakar, Shreyas",
+        "Project": "m4659",
+        "Partition": "urgent_gpu_ss11",
+        "QOS": "gpu_interactive",
+        "Start Time": "2025-12-16 17:30",
+        "End Time": "2025-12-16 17:54",
+        "Hostname": "perlmutter gpu",
+        "Charged Node Hours": 0.4
+    },
+    {
+        "Job ID": 46600222,
+        "User": "Prabhakar, Shreyas",
+        "Project": "m4659",
+        "Partition": "urgent_gpu_ss11",
+        "QOS": "gpu_interactive",
+        "Start Time": "2025-12-16 17:54",
+        "End Time": "2025-12-16 18:05",
+        "Hostname": "perlmutter gpu",
+        "Charged Node Hours": 0.18
+    },
+    {
+        "Job ID": 46600581,
+        "User": "Prabhakar, Shreyas",
+        "Project": "m4659",
+        "Partition": "urgent_gpu_ss11",
+        "QOS": "gpu_interactive",
+        "Start Time": "2025-12-16 18:06",
+        "End Time": "2025-12-16 18:24",
+        "Hostname": "perlmutter gpu",
+        "Charged Node Hours": 0.31
+    }
+]
