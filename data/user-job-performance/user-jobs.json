@@ -1,6 +1,7 @@
 [
     {
         "Job ID": 46597792,
+        "Job Name": "urgent_gpu_ss11",
         "User": "Prabhakar, Shreyas",
         "Project": "m4659",
         "Partition": "urgent_gpu_ss11",
@@ -12,6 +13,7 @@
     },
     {
         "Job ID": 46598165,
+        "Job Name": "job_ss11",
         "User": "Prabhakar, Shreyas",
         "Project": "m4659",
         "Partition": "urgent_gpu_ss11",
@@ -23,6 +25,7 @@
     },
     {
         "Job ID": 46598851,
+        "Job Name": "urgent_gpu_ss11",
         "User": "Prabhakar, Shreyas",
         "Project": "m4659",
         "Partition": "urgent_gpu_ss11",
@@ -34,6 +37,7 @@
     },
     {
         "Job ID": 46599456,
+        "Job Name": "job_ss22",
         "User": "Prabhakar, Shreyas",
         "Project": "m4659",
         "Partition": "urgent_gpu_ss11",
@@ -45,6 +49,7 @@
     },
     {
         "Job ID": 46600222,
+        "Job Name": "Jupyter",
         "User": "Prabhakar, Shreyas",
         "Project": "m4659",
         "Partition": "urgent_gpu_ss11",
@@ -56,6 +61,7 @@
     },
     {
         "Job ID": 46600581,
+        "Job Name": "job_ss22",
         "User": "Prabhakar, Shreyas",
         "Project": "m4659",
         "Partition": "urgent_gpu_ss11",
