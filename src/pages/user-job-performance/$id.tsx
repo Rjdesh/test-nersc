@@ -54,7 +54,7 @@ type MetricsByJob = Record<string, MetricsRow[]>;
 type UtilizationNodeRow = {
   node: string;
   color: string;
-  symbol: string;
+  symbol: NodeMarker;
   time: number[];
   cpuSeries: number[];
   gpuSeries: number[];
@@ -152,13 +152,6 @@ function JobPerformanceDetailPage() {
   const [resourceAggregation, setResourceAggregation] = useState('mean');
   const [showCpuUtilization, setShowCpuUtilization] = useState(true);
   const [showGpuUtilization, setShowGpuUtilization] = useState(true);
-  const [expandGpuPerformance, setExpandGpuPerformance] = useState(false);
-  const [gpuPerformanceAggregation, setGpuPerformanceAggregation] =
-    useState('mean');
-  const [showGpuPerformanceUtilization, setShowGpuPerformanceUtilization] =
-    useState(true);
-  const [showGpuPerformanceMemory, setShowGpuPerformanceMemory] =
-    useState(true);
   const [expandMemoryUtilization, setExpandMemoryUtilization] = useState(false);
   const [memoryAggregation, setMemoryAggregation] = useState('mean');
   const [showCpuMemory, setShowCpuMemory] = useState(true);
@@ -188,12 +181,6 @@ function JobPerformanceDetailPage() {
       setExpandUtilization(true);
     }
   }, [resourceAggregation]);
-
-  useEffect(() => {
-    if (gpuPerformanceAggregation === 'all') {
-      setExpandGpuPerformance(true);
-    }
-  }, [gpuPerformanceAggregation]);
 
   useEffect(() => {
     if (memoryAggregation === 'all') {
@@ -235,7 +222,6 @@ function JobPerformanceDetailPage() {
         'runtime-resource-distribution',
         'resource-util',
         'memory-util',
-        'gpu-performance',
         'gpu-inter-node-network',
         'power',
         'pcie-bandwidth',
@@ -576,74 +562,6 @@ function JobPerformanceDetailPage() {
       : filteredMemoryUtilizationData.length
         ? filteredMemoryUtilizationData
         : memoryUtilizationData;
-  const displayedGpuPerformanceRows = memoryNodeRows.map((memoryRow, idx) => {
-    const utilizationRow = nodeUtilizationRows[idx] ?? memoryRow;
-    return {
-      color: utilizationRow.color,
-      symbol: utilizationRow.symbol,
-      node: utilizationRow.node,
-      gpuUtilization:
-        gpuPerformanceAggregation === 'max'
-          ? utilizationRow.gpuMax
-          : gpuPerformanceAggregation === 'min'
-            ? utilizationRow.gpuMin
-            : utilizationRow.gpuMean,
-      gpuMemoryUtilization:
-        gpuPerformanceAggregation === 'max'
-          ? memoryRow.gpuMax
-          : gpuPerformanceAggregation === 'min'
-            ? memoryRow.gpuMin
-            : memoryRow.gpuMean,
-    };
-  });
-  const gpuPerformanceTableMetricPrefix =
-    gpuPerformanceAggregation === 'max'
-      ? 'Max.'
-      : gpuPerformanceAggregation === 'min'
-        ? 'Min.'
-        : 'Avg.';
-  const gpuPerformanceUtilizationPlotData =
-    gpuPerformanceAggregation === 'all'
-      ? showGpuPerformanceUtilization
-        ? nodeUtilizationRows.map((row) => ({
-            x: row.time,
-            y: row.gpuSeries,
-            type: 'scatter' as const,
-            mode: 'lines+markers' as const,
-            name: row.node,
-            line: { color: COLOR_TOKENS.gpu, width: 1.8 },
-            marker: { symbol: row.symbol, size: 5 },
-          }))
-        : []
-      : showGpuPerformanceUtilization
-        ? resourceUtilizationData
-            .filter((series) => series.name === 'GPU')
-            .map((series) => ({
-              ...series,
-              line: { ...(series.line ?? {}), color: COLOR_TOKENS.gpu },
-            }))
-        : [];
-  const gpuPerformanceMemoryPlotData =
-    gpuPerformanceAggregation === 'all'
-      ? showGpuPerformanceMemory
-        ? memoryNodeRows.map((row) => ({
-            x: row.time,
-            y: row.gpuSeries,
-            type: 'scatter' as const,
-            mode: 'lines+markers' as const,
-            name: row.node,
-            line: { color: COLOR_TOKENS.memory, width: 1.8 },
-            marker: { symbol: row.symbol, size: 5 },
-          }))
-        : []
-      : showGpuPerformanceMemory
-        ? memoryUtilizationData
-            .filter((series) => series.name === 'GPU Memory')
-            .map((series) => ({
-              ...series,
-              line: { ...(series.line ?? {}), color: COLOR_TOKENS.memory },
-            }))
-        : [];
   const gpuInterNodeNetworkData = generateGpuInterNodeNetworkData(metricsByJob, id);
   const nvlinkSeries = gpuInterNodeNetworkData.find(
     (series) => series.name === 'GPU Network (NVLink)'
@@ -2546,6 +2464,7 @@ const NODE_MARKERS = [
   'triangle-down',
   'cross',
 ] as const;
+type NodeMarker = (typeof NODE_MARKERS)[number];
 const NODE_COLORS = [
   '#1f77b4',
   '#2ca02c',
@@ -2561,7 +2480,7 @@ const NODE_COLORS = [
   '#637939',
 ];
 
-const getMarkerGlyph = (symbol: (typeof NODE_MARKERS)[number]) => {
+const getMarkerGlyph = (symbol: NodeMarker) => {
   if (symbol === 'square') return '■';
   if (symbol === 'diamond') return '◆';
   if (symbol === 'triangle-up') return '▲';
@@ -3127,8 +3046,7 @@ function buildUtilizationBandTraces(
       name: string;
       line?: { color?: string; width?: number };
     },
-    seriesKey: 'cpuSeries' | 'gpuSeries',
-    includeTimeLabel: boolean
+    seriesKey: 'cpuSeries' | 'gpuSeries'
   ) => {
     const label = trace.name as 'CPU' | 'GPU';
     const color =
@@ -3187,7 +3105,7 @@ function buildUtilizationBandTraces(
   const cpuTrace = meanTraces.find((trace) => trace.name === 'CPU');
 
   return [
-    ...(gpuTrace ? buildMetricTraces(gpuTrace, 'gpuSeries', true) : []),
-    ...(cpuTrace ? buildMetricTraces(cpuTrace, 'cpuSeries', false) : []),
+    ...(gpuTrace ? buildMetricTraces(gpuTrace, 'gpuSeries') : []),
+    ...(cpuTrace ? buildMetricTraces(cpuTrace, 'cpuSeries') : []),
   ];
 }

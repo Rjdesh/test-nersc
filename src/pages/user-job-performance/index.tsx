@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CloseIcon from '@mui/icons-material/Close';
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link as RouterLink, useNavigate } from '@tanstack/react-router';
 import { MouseEvent, useCallback, useState } from 'react';
 import { FilterContext } from '../../components/FilterContext';
 import { SciDataGrid } from '../../components/SciDataGrid';
@@ -83,6 +83,8 @@ interface JobGridRow {
   partition: string;
   hostname: string;
 }
+
+type JobPerformanceSummaryInput = Pick<JobGridRow, 'jobId' | 'avgGpuUtilization'>;
 
 const parseJobTimestamp = (value: string) => new Date(value.replace(' ', 'T'));
 const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
@@ -224,7 +226,7 @@ const getJobStatusTone = (status: string) => {
 };
 
 const getJobPerformanceSummary = (
-  row: JobGridRow,
+  row: JobPerformanceSummaryInput,
   metricsByJob: MetricsByJob | undefined
 ) => {
   const metricRows = metricsByJob?.[row.jobId] ?? [];
@@ -369,9 +371,6 @@ function JobTableToolbar({
             borderColor: '#2563eb',
             boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.14)',
           },
-          '& .MuiInputBase-root': {
-            color: '#111827',
-          },
           '& .MuiInputBase-input': {
             py: 1,
           },
@@ -486,7 +485,9 @@ function UserJobPerformance() {
   // Generate dummy data for GPU utilization and energy consumed
   const generateDummyGpuUtil = (jobId: number) => getSeededValue(jobId, 40, 75);
   const generateDummyEnergy = (jobId: number) => getSeededValue(jobId + 17, 800, 1600);
-  const generateEnergyStatus = (energy: number) => {
+  const generateEnergyStatus = (
+    energy: number
+  ): JobGridRow['energyStatus'] => {
     if (energy > 1400) return 'high';
     if (energy > 1100) return 'warning';
     return 'medium';
@@ -567,20 +568,19 @@ function UserJobPerformance() {
       width: 150,
       hideable: false,
       renderCell: (params: GridRenderCellParams) => (
-        <MuiLink
-          component={Link}
+        <RouterLink
           to="/user-job-performance/$id"
-          params={{ id: params.row.jobId }}
-          underline="hover"
-          sx={{
+          params={{ id: String(params.row.jobId) }}
+          style={{
             color: '#2563eb',
             fontWeight: 500,
             textAlign: 'left',
             cursor: 'pointer',
+            textDecoration: 'none',
           }}
         >
-          {params.value}
-        </MuiLink>
+          {String(params.value)}
+        </RouterLink>
       ),
     },
     {
@@ -753,9 +753,9 @@ function UserJobPerformance() {
             whiteSpace: 'nowrap',
           }}
         >
-          <Link
+          <RouterLink
             to="/user-job-performance/$id"
-            params={{ id: params.row.id }}
+            params={{ id: String(params.row.id) }}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -768,7 +768,7 @@ function UserJobPerformance() {
             }}
           >
             Quick View
-          </Link>
+          </RouterLink>
           <IconButton
             size="small"
             aria-label="More actions"
@@ -1174,27 +1174,29 @@ function UserJobPerformance() {
                       </Typography>
                     </Box>
                   </Box>
-                  <Button
-                    component={Link}
+                  <RouterLink
                     to="/user-job-performance/$id"
                     params={{ id: activeJob.id }}
-                    variant="outlined"
-                    size="small"
-                    sx={{
-                      flexShrink: 0,
-                      textTransform: 'none',
-                      fontWeight: 600,
-                      color: '#1d4ed8',
-                      borderColor: '#93c5fd',
-                      bgcolor: '#ffffff',
-                      '&:hover': {
-                        borderColor: '#60a5fa',
-                        bgcolor: '#dbeafe',
-                      },
-                    }}
+                    style={{ textDecoration: 'none', flexShrink: 0 }}
                   >
-                    Explore
-                  </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 600,
+                        color: '#1d4ed8',
+                        borderColor: '#93c5fd',
+                        bgcolor: '#ffffff',
+                        '&:hover': {
+                          borderColor: '#60a5fa',
+                          bgcolor: '#dbeafe',
+                        },
+                      }}
+                    >
+                      Explore
+                    </Button>
+                  </RouterLink>
                 </Box>
               </Paper>
 
@@ -1308,23 +1310,26 @@ function UserJobPerformance() {
                 backdropFilter: 'blur(8px)',
               }}
             >
-              <Button
-                component={Link}
+              <RouterLink
                 to="/user-job-performance/$id"
                 params={{ id: activeJob.id }}
-                variant="contained"
-                fullWidth
-                sx={{
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  bgcolor: '#0f172a',
-                  '&:hover': {
-                    bgcolor: '#1e293b',
-                  },
-                }}
+                style={{ textDecoration: 'none' }}
               >
-                View Performance Details
-              </Button>
+                <Button
+                  variant="contained"
+                  fullWidth
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    bgcolor: '#0f172a',
+                    '&:hover': {
+                      bgcolor: '#1e293b',
+                    },
+                  }}
+                >
+                  View Performance Details
+                </Button>
+              </RouterLink>
             </Box>
                 </>
               );
