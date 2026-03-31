@@ -51,11 +51,27 @@ interface MetricsRow {
 
 type MetricsByJob = Record<string, MetricsRow[]>;
 
+type UtilizationNodeRow = {
+  node: string;
+  color: string;
+  symbol: string;
+  time: number[];
+  cpuSeries: number[];
+  gpuSeries: number[];
+  cpuMean: number;
+  cpuMin: number;
+  cpuMax: number;
+  gpuMean: number;
+  gpuMin: number;
+  gpuMax: number;
+};
+
 const COLOR_TOKENS = {
   pageBg: '#f3f4f6',
   textPrimary: '#111827',
   textSecondary: '#4b5563',
   neutralTrack: '#d1d5db',
+  vizGray: '#9ca3af',
   throughputFill: '#0a3a68',
   cpu: '#3b82f6',
   gpu: '#10b981',
@@ -104,6 +120,27 @@ const METRIC_CHIP_ICON_SX = {
   fontSize: 18,
 };
 
+const SECTION_TOGGLE_SX = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 1,
+  cursor: 'pointer',
+  py: 0.5,
+};
+
+const rgba = (hex: string, alpha: number) => {
+  const normalized = hex.replace('#', '');
+  const value =
+    normalized.length === 3
+      ? normalized.split('').map((char) => `${char}${char}`).join('')
+      : normalized;
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 /**
  * Detail view for a selected job from the User Job Performance page.
  */
@@ -139,6 +176,12 @@ function JobPerformanceDetailPage() {
   const [showPcieRead, setShowPcieRead] = useState(true);
   const [showPcieWrite, setShowPcieWrite] = useState(true);
   const [activeSection, setActiveSection] = useState('job-details');
+  const [expandResourceSection, setExpandResourceSection] = useState(false);
+  const [expandMemorySection, setExpandMemorySection] = useState(false);
+  const [expandPowerSection, setExpandPowerSection] = useState(false);
+  const [expandPcieSection, setExpandPcieSection] = useState(false);
+  const [expandNetworkSection, setExpandNetworkSection] = useState(false);
+  const [expandRooflineSection, setExpandRooflineSection] = useState(false);
 
   useEffect(() => {
     if (resourceAggregation === 'all') {
@@ -275,25 +318,14 @@ function JobPerformanceDetailPage() {
           color: row.color,
           symbol: row.symbol,
           node: row.node,
-          cpu:
-            resourceAggregation === 'max'
-              ? row.cpuMax
-              : resourceAggregation === 'min'
-                ? row.cpuMin
-                : row.cpuMean,
-          gpu:
-            resourceAggregation === 'max'
-              ? row.gpuMax
-              : resourceAggregation === 'min'
-                ? row.gpuMin
-                : row.gpuMean,
+          cpu: row.cpuMean,
+          gpu: row.gpuMean,
         }));
-  const tableMetricPrefix =
-    resourceAggregation === 'max'
-      ? 'Max.'
-      : resourceAggregation === 'min'
-        ? 'Min.'
-        : 'Avg.';
+  const tableMetricPrefix = 'Avg.';
+  const resourceBandData = buildUtilizationBandTraces(
+    nodeUtilizationRows,
+    filteredResourceUtilizationData
+  );
   const resourcePlotData =
     resourceAggregation === 'all'
       ? nodeUtilizationRows.flatMap((row) => {
@@ -322,9 +354,7 @@ function JobPerformanceDetailPage() {
           }
           return traces;
         })
-      : filteredResourceUtilizationData.length
-        ? filteredResourceUtilizationData
-        : resourceUtilizationData;
+      : resourceBandData;
   const cpuPowerSeries =
     powerData.find((series) => series.name === 'CPU')?.y ?? [];
   const gpuPowerSeries =
@@ -797,7 +827,7 @@ function JobPerformanceDetailPage() {
                     color="text.secondary"
                     display="block"
                   >
-                    Start time
+                    Submit time
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 500 }}>
                     Fri Jul 7, 2025 18:32 PT
@@ -978,9 +1008,17 @@ function JobPerformanceDetailPage() {
                     GPU Throughput Overview
                   </Typography>
                   {[
-                    { label: 'Compute (SM) Throughput', value: 39.88 },
-                    { label: 'Memory Throughput', value: 80.88 },
-                    { label: 'DRAM Throughput', value: 80.88 },
+                    {
+                      label: 'GPU Utilization',
+                      value: 39.88,
+                      description: 'How busy the GPU compute cores were.',
+                    },
+                    {
+                      label: 'Memory Utilization',
+                      value: 80.88,
+                      description:
+                        'How full the GPU memory system was during the job.',
+                    },
                   ].map((item) => (
                     <Box
                       key={item.label}
@@ -992,12 +1030,20 @@ function JobPerformanceDetailPage() {
                         mb: 4,
                       }}
                     >
-                      <Typography
-                        variant="subtitle1"
-                        sx={{ ...SECTION_TITLE_SX, fontWeight: 600 }}
-                      >
-                        {item.label}
-                      </Typography>
+                      <Box>
+                        <Typography
+                          variant="subtitle1"
+                          sx={{ ...SECTION_TITLE_SX, fontWeight: 600 }}
+                        >
+                          {item.label}
+                        </Typography>
+                        <Typography
+                          variant="body2"
+                          sx={{ mt: 0.5, color: COLOR_TOKENS.textSecondary }}
+                        >
+                          {item.description}
+                        </Typography>
+                      </Box>
                       <Box
                         sx={{
                           height: 20,
@@ -1019,14 +1065,6 @@ function JobPerformanceDetailPage() {
                       </Typography>
                     </Box>
                   ))}
-                  <Typography
-                    variant="body1"
-                    sx={{ maxWidth: 760, mb: 2, color: COLOR_TOKENS.textSecondary }}
-                  >
-                    Kernel shows high throughput, using &gt;80% of available
-                    compute or memory. Consider shifting work off the bottleneck,
-                    further analyze DRAM to investigate more.
-                  </Typography>
                   <Link href="#" sx={ACTION_LINK_SX}>
                     See more GPU throughput metrics <ArrowForwardIcon />
                   </Link>
@@ -1044,10 +1082,10 @@ function JobPerformanceDetailPage() {
                     <Grid item xs={12} md={5}>
                       <Stack spacing={2.5} sx={{ mt: 2 }}>
                         {[
-                          { label: 'GPU', value: '52.3%', color: COLOR_TOKENS.cpu },
-                          { label: 'I/O', value: '62.4%', color: COLOR_TOKENS.gpu },
-                          { label: 'CPU', value: '62.4%', color: COLOR_TOKENS.memory },
-                          { label: 'Network', value: '62.4%', color: COLOR_TOKENS.network },
+                          { label: 'GPU', value: '35%', color: COLOR_TOKENS.cpu },
+                          { label: 'CPU', value: '20%', color: COLOR_TOKENS.memory },
+                          { label: 'Network', value: '25%', color: COLOR_TOKENS.network },
+                          { label: 'Others', value: '45%', color: COLOR_TOKENS.vizGray },
                         ].map((item) => (
                           <Box
                             key={item.label}
@@ -1071,19 +1109,22 @@ function JobPerformanceDetailPage() {
                         data={[
                           {
                             type: 'pie',
-                            hole: 0.62,
+                            hole: 0.50,
                             values: [35, 45, 20, 25],
-                            labels: ['GPU', 'I/O', 'CPU', 'Network'],
+                            labels: ['GPU', 'Others', 'CPU', 'Network'],
                             text: ['35%', '45%', '20%', '25%'],
                             textinfo: 'text',
-                            texttemplate: '%{label}<br>%{text}',
+                            texttemplate:
+                              '<span style="font-weight:600">%{label}</span><br><span style="font-weight:600">%{text}</span>',
                             textposition: 'inside',
+                            insidetextfont: { color: '#ffffff', family: 'inherit', size: 12 },
+                            textfont: { color: '#ffffff', family: 'inherit', size: 14 },
                             insidetextorientation: 'horizontal',
                             sort: false,
                             marker: {
                               colors: [
                                 COLOR_TOKENS.cpu,
-                                COLOR_TOKENS.gpu,
+                                COLOR_TOKENS.vizGray,
                                 COLOR_TOKENS.memory,
                                 COLOR_TOKENS.network,
                               ],
@@ -1095,7 +1136,7 @@ function JobPerformanceDetailPage() {
                         ]}
                         layout={{
                           autosize: true,
-                          height: 360,
+                          height: 300,
                           margin: { l: 10, r: 10, t: 10, b: 10 },
                           paper_bgcolor: 'rgba(0,0,0,0)',
                           plot_bgcolor: 'rgba(0,0,0,0)',
@@ -1114,21 +1155,32 @@ function JobPerformanceDetailPage() {
               id="resource-util"
               sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <Box
+                sx={{ ...SECTION_TOGGLE_SX, mb: expandResourceSection ? 3 : 0 }}
+                onClick={() => setExpandResourceSection(!expandResourceSection)}
+              >
+                <IconButton size="small">
+                  {expandResourceSection ? (
+                    <ExpandMoreIcon />
+                  ) : (
+                    <KeyboardArrowRightIcon />
+                  )}
+                </IconButton>
                 <Typography variant="h5" sx={SECTION_TITLE_SX}>
                   GPU & CPU Utilization
                 </Typography>
               </Box>
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 2,
-                  mb: 2,
-                }}
-              >
+              <Collapse in={expandResourceSection}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 2,
+                    mb: 2,
+                  }}
+                >
                 <FormControl size="small" sx={{ minWidth: 220 }}>
                   <Typography
                     variant="caption"
@@ -1142,8 +1194,6 @@ function JobPerformanceDetailPage() {
                     onChange={(e) => setResourceAggregation(e.target.value)}
                   >
                     <MenuItem value="mean">Mean across Nodes</MenuItem>
-                    <MenuItem value="min">Min across Nodes</MenuItem>
-                    <MenuItem value="max">Max across Nodes</MenuItem>
                     <MenuItem value="all">See all nodes</MenuItem>
                   </Select>
                 </FormControl>
@@ -1191,90 +1241,91 @@ function JobPerformanceDetailPage() {
                     </Box>
                   </Tooltip>
                 </Box>
-              </Box>
-              <Plot
-                data={resourcePlotData as any}
-                layout={{
-                  autosize: true,
-                  height: 330,
-                  margin: { l: 50, r: 20, t: 20, b: 50 },
-                  xaxis: {
-                    title: 'Floored Relative Time (s)',
-                  },
-                  yaxis: {
-                    title: 'Utilization %',
-                    range: [0, 100],
-                  },
-                  showlegend: resourceAggregation === 'all',
-                  legend:
-                    resourceAggregation === 'all'
-                      ? {
-                          orientation: 'v',
-                          x: 1.02,
-                          y: 1,
-                          xanchor: 'left',
-                        }
-                      : undefined,
-                  hovermode: 'x unified',
-                }}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
-              <Divider sx={{ mt: 2, mb: 1.5 }} />
-              <Box
-                id="util-nodes"
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  cursor: 'pointer',
-                  py: 1,
-                }}
-                onClick={() => setExpandUtilization(!expandUtilization)}
-              >
-                <IconButton size="small">
-                  {expandUtilization ? <ExpandMoreIcon /> : <KeyboardArrowRightIcon />}
-                </IconButton>
-                <Typography variant="h6" sx={{ fontWeight: 500 }}>
-                  View the tabular data across individual nodes
-                </Typography>
-              </Box>
-              <Collapse in={expandUtilization}>
-                <Box sx={{ scrollMarginTop: '80px' }}>
-                  <TableContainer>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 700 }}>Legend</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>Nodes</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>
-                            {tableMetricPrefix} CPU Utilization
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>
-                            {tableMetricPrefix} GPU Utilization
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {displayedNodeRows.map((row) => (
-                          <TableRow key={row.node}>
-                            <TableCell>
-                              <Typography
-                                variant="body1"
-                                sx={{ color: row.color, lineHeight: 1 }}
-                              >
-                                {getMarkerGlyph(row.symbol)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>{row.node}</TableCell>
-                            <TableCell>{row.cpu.toFixed(3)}%</TableCell>
-                            <TableCell>{row.gpu.toFixed(3)}%</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
                 </Box>
+                <Plot
+                  data={resourcePlotData as any}
+                  layout={{
+                    autosize: true,
+                    height: 330,
+                    margin: { l: 50, r: 20, t: 20, b: 50 },
+                    xaxis: {
+                      title: 'Floored Relative Time (s)',
+                    },
+                    yaxis: {
+                      title: 'Utilization %',
+                      range: [0, 100],
+                    },
+                    showlegend: resourceAggregation === 'all',
+                    legend:
+                      resourceAggregation === 'all'
+                        ? {
+                            orientation: 'v',
+                            x: 1.02,
+                            y: 1,
+                            xanchor: 'left',
+                          }
+                        : undefined,
+                    hovermode: 'x unified',
+                  }}
+                  config={{ responsive: true, displayModeBar: false }}
+                  style={{ width: '100%' }}
+                />
+                <Divider sx={{ mt: 2, mb: 1.5 }} />
+                <Box
+                  id="util-nodes"
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    cursor: 'pointer',
+                    py: 1,
+                  }}
+                  onClick={() => setExpandUtilization(!expandUtilization)}
+                >
+                  <IconButton size="small">
+                    {expandUtilization ? <ExpandMoreIcon /> : <KeyboardArrowRightIcon />}
+                  </IconButton>
+                  <Typography variant="h6" sx={{ fontWeight: 500 }}>
+                    View node level data
+                  </Typography>
+                </Box>
+                <Collapse in={expandUtilization}>
+                  <Box sx={{ scrollMarginTop: '80px' }}>
+                    <TableContainer>
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Legend</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Nodes</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>
+                              {tableMetricPrefix} CPU Utilization
+                            </TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>
+                              {tableMetricPrefix} GPU Utilization
+                            </TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {displayedNodeRows.map((row) => (
+                            <TableRow key={row.node}>
+                              <TableCell>
+                                <Typography
+                                  variant="body1"
+                                  sx={{ color: row.color, lineHeight: 1 }}
+                                >
+                                  {getMarkerGlyph(row.symbol)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>{row.node}</TableCell>
+                              <TableCell>{row.cpu.toFixed(3)}%</TableCell>
+                              <TableCell>{row.gpu.toFixed(3)}%</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                </Collapse>
               </Collapse>
             </Paper>
 
@@ -1284,21 +1335,32 @@ function JobPerformanceDetailPage() {
               id="memory-util"
               sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <Box
+                sx={{ ...SECTION_TOGGLE_SX, mb: expandMemorySection ? 3 : 0 }}
+                onClick={() => setExpandMemorySection(!expandMemorySection)}
+              >
+                <IconButton size="small">
+                  {expandMemorySection ? (
+                    <ExpandMoreIcon />
+                  ) : (
+                    <KeyboardArrowRightIcon />
+                  )}
+                </IconButton>
                 <Typography variant="h5" sx={SECTION_TITLE_SX}>
                   Memory Utilization
                 </Typography>
               </Box>
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 2,
-                  mb: 2,
-                }}
-              >
+              <Collapse in={expandMemorySection}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 2,
+                    mb: 2,
+                  }}
+                >
                 <FormControl size="small" sx={{ minWidth: 220 }}>
                   <Typography
                     variant="caption"
@@ -1361,8 +1423,8 @@ function JobPerformanceDetailPage() {
                     </Box>
                   </Tooltip>
                 </Box>
-              </Box>
-              <Plot
+                </Box>
+                <Plot
                 data={memoryPlotData as any}
                 layout={{
                   autosize: true,
@@ -1402,9 +1464,9 @@ function JobPerformanceDetailPage() {
                 }}
                 config={{ responsive: true, displayModeBar: false }}
                 style={{ width: '100%' }}
-              />
-              <Divider sx={{ mt: 2, mb: 1.5 }} />
-              <Box
+                />
+                <Divider sx={{ mt: 2, mb: 1.5 }} />
+                <Box
                 id="memory-nodes"
                 sx={{
                   display: 'flex',
@@ -1414,7 +1476,7 @@ function JobPerformanceDetailPage() {
                   py: 1,
                 }}
                 onClick={() => setExpandMemoryUtilization(!expandMemoryUtilization)}
-              >
+                >
                 <IconButton size="small">
                   {expandMemoryUtilization ? (
                     <ExpandMoreIcon />
@@ -1425,9 +1487,9 @@ function JobPerformanceDetailPage() {
                 <Typography variant="h6" sx={{ fontWeight: 500 }}>
                   View the tabular memory data across individual nodes
                 </Typography>
-              </Box>
-              <Collapse in={expandMemoryUtilization}>
-                <Box sx={{ scrollMarginTop: '80px' }}>
+                </Box>
+                <Collapse in={expandMemoryUtilization}>
+                  <Box sx={{ scrollMarginTop: '80px' }}>
                   <TableContainer>
                     <Table>
                       <TableHead>
@@ -1461,239 +1523,30 @@ function JobPerformanceDetailPage() {
                       </TableBody>
                     </Table>
                   </TableContainer>
-                </Box>
+                  </Box>
+                </Collapse>
               </Collapse>
             </Paper>
-            {/* GPU Performance */}
-            <Paper
-              id="gpu-performance"
-              sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                <Typography variant="h5" sx={SECTION_TITLE_SX}>
-                  GPU Performance
-                </Typography>
-              </Box>
+            
+
+            {/* Power */}
+            <Paper id="power" sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}>
               <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 2,
-                  mb: 2,
-                }}
-              >
-                <FormControl size="small" sx={{ minWidth: 220 }}>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ mb: 0.5 }}
-                  >
-                    Aggregation
-                  </Typography>
-                  <Select
-                    value={gpuPerformanceAggregation}
-                    onChange={(e) => setGpuPerformanceAggregation(e.target.value)}
-                  >
-                    <MenuItem value="mean">Mean across Nodes</MenuItem>
-                    <MenuItem value="min">Min across Nodes</MenuItem>
-                    <MenuItem value="max">Max across Nodes</MenuItem>
-                    <MenuItem value="all">See all nodes</MenuItem>
-                  </Select>
-                </FormControl>
-                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                  <Tooltip
-                    arrow
-                    placement="top"
-                    title="Avg. GPU utilization across all nodes for the selected job."
-                  >
-                    <Box
-                      onClick={() =>
-                        setShowGpuPerformanceUtilization(
-                          !showGpuPerformanceUtilization
-                        )
-                      }
-                      sx={{
-                        ...METRIC_CHIP_BASE_SX,
-                        border: `2px solid ${COLOR_TOKENS.gpu}`,
-                        opacity: showGpuPerformanceUtilization ? 1 : 0.45,
-                      }}
-                    >
-                      <MemoryIcon
-                        sx={{ ...METRIC_CHIP_ICON_SX, color: COLOR_TOKENS.gpu }}
-                      />
-                      <Typography sx={METRIC_CHIP_LABEL_SX}>
-                        GPU Utilization {gpuUtilizationAvg.toFixed(1)}%
-                      </Typography>
-                    </Box>
-                  </Tooltip>
-                  <Tooltip
-                    arrow
-                    placement="top"
-                    title="Avg. GPU memory utilization across all nodes for the selected job."
-                  >
-                    <Box
-                      onClick={() =>
-                        setShowGpuPerformanceMemory(!showGpuPerformanceMemory)
-                      }
-                      sx={{
-                        ...METRIC_CHIP_BASE_SX,
-                        border: `2px solid ${COLOR_TOKENS.memory}`,
-                        opacity: showGpuPerformanceMemory ? 1 : 0.45,
-                      }}
-                    >
-                      <MemoryIcon
-                        sx={{
-                          ...METRIC_CHIP_ICON_SX,
-                          color: COLOR_TOKENS.memory,
-                        }}
-                      />
-                      <Typography sx={METRIC_CHIP_LABEL_SX}>
-                        GPU Memory {gpuMemoryAvg.toFixed(1)}%
-                      </Typography>
-                    </Box>
-                  </Tooltip>
-                </Box>
-              </Box>
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                    GPU Utilization
-                  </Typography>
-                  <Plot
-                    data={gpuPerformanceUtilizationPlotData.filter(Boolean) as any}
-                    layout={{
-                      autosize: true,
-                      height: 320,
-                      margin: { l: 50, r: 20, t: 20, b: 50 },
-                      xaxis: {
-                        title: 'Floored Relative Time (s)',
-                      },
-                      yaxis: { title: 'GPU Utilization %', range: [0, 100] },
-                      showlegend: gpuPerformanceAggregation === 'all',
-                      legend:
-                        gpuPerformanceAggregation === 'all'
-                          ? { orientation: 'v', x: 1.02, y: 1, xanchor: 'left' }
-                          : undefined,
-                      hovermode: 'x unified',
-                    }}
-                    config={{ responsive: true, displayModeBar: false }}
-                    style={{ width: '100%' }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                    GPU Memory
-                  </Typography>
-                  <Plot
-                    data={gpuPerformanceMemoryPlotData.filter(Boolean) as any}
-                    layout={{
-                      autosize: true,
-                      height: 320,
-                      margin: { l: 50, r: 20, t: 20, b: 50 },
-                      xaxis: {
-                        title: 'Relative Time',
-                        tickvals: [0, 12.5, 25, 37, 47, 58, 68, 78, 88, 100],
-                        ticktext: [
-                          '0%',
-                          '12%',
-                          '25%',
-                          '37%',
-                          '47%',
-                          '58%',
-                          '68%',
-                          '78%',
-                          '88%',
-                          '100%',
-                        ],
-                      },
-                      yaxis: { title: 'GPU Memory Utilization %', range: [0, 100] },
-                      showlegend: gpuPerformanceAggregation === 'all',
-                      legend:
-                        gpuPerformanceAggregation === 'all'
-                          ? { orientation: 'v', x: 1.02, y: 1, xanchor: 'left' }
-                          : undefined,
-                      hovermode: 'x unified',
-                    }}
-                    config={{ responsive: true, displayModeBar: false }}
-                    style={{ width: '100%' }}
-                  />
-                </Grid>
-              </Grid>
-              <Divider sx={{ mt: 2, mb: 1.5 }} />
-              <Box
-                id="gpu-performance-nodes"
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  cursor: 'pointer',
-                  py: 1,
-                }}
-                onClick={() => setExpandGpuPerformance(!expandGpuPerformance)}
+                sx={{ ...SECTION_TOGGLE_SX, mb: expandPowerSection ? 2 : 0 }}
+                onClick={() => setExpandPowerSection(!expandPowerSection)}
               >
                 <IconButton size="small">
-                  {expandGpuPerformance ? (
+                  {expandPowerSection ? (
                     <ExpandMoreIcon />
                   ) : (
                     <KeyboardArrowRightIcon />
                   )}
                 </IconButton>
-                <Typography variant="h6" sx={{ fontWeight: 500 }}>
-                  View the tabular GPU performance data across individual nodes
-                </Typography>
-              </Box>
-              <Collapse in={expandGpuPerformance}>
-                <Box sx={{ scrollMarginTop: '80px' }}>
-                  <TableContainer>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 700 }}>Legend</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>Nodes</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>
-                            {gpuPerformanceTableMetricPrefix} GPU Utilization
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>
-                            {gpuPerformanceTableMetricPrefix} GPU Memory
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {displayedGpuPerformanceRows.map((row) => (
-                          <TableRow key={`gpu-performance-${row.node}`}>
-                            <TableCell>
-                              <Typography
-                                variant="body1"
-                                sx={{ color: row.color, lineHeight: 1 }}
-                              >
-                                {getMarkerGlyph(row.symbol)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>{row.node}</TableCell>
-                            <TableCell>{row.gpuUtilization.toFixed(3)}%</TableCell>
-                            <TableCell>
-                              {row.gpuMemoryUtilization.toFixed(3)}%
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Box>
-              </Collapse>
-            </Paper>
-
-            
-
-            {/* Power */}
-            <Paper id="power" sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6" sx={SECTION_TITLE_SX}>
+                <Typography variant="h5" sx={SECTION_TITLE_SX}>
                   Power
                 </Typography>
               </Box>
+              <Collapse in={expandPowerSection}>
               <Box
                 sx={{
                   display: 'flex',
@@ -1884,6 +1737,7 @@ function JobPerformanceDetailPage() {
                   </TableContainer>
                 </Box>
               </Collapse>
+              </Collapse>
             </Paper>
 
             {/* PCIe Bandwidth */}
@@ -1891,11 +1745,22 @@ function JobPerformanceDetailPage() {
               id="pcie-bandwidth"
               sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <Box
+                sx={{ ...SECTION_TOGGLE_SX, mb: expandPcieSection ? 3 : 0 }}
+                onClick={() => setExpandPcieSection(!expandPcieSection)}
+              >
+                <IconButton size="small">
+                  {expandPcieSection ? (
+                    <ExpandMoreIcon />
+                  ) : (
+                    <KeyboardArrowRightIcon />
+                  )}
+                </IconButton>
                 <Typography variant="h5" sx={SECTION_TITLE_SX}>
                   PCIe Bandwidth
                 </Typography>
               </Box>
+              <Collapse in={expandPcieSection}>
               <Box
                 sx={{
                   display: 'flex',
@@ -2064,6 +1929,7 @@ function JobPerformanceDetailPage() {
                   </TableContainer>
                 </Box>
               </Collapse>
+              </Collapse>
             </Paper>
 
             {/* GPU and Inter-Node Network */}
@@ -2071,11 +1937,22 @@ function JobPerformanceDetailPage() {
               id="gpu-inter-node-network"
               sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <Box
+                sx={{ ...SECTION_TOGGLE_SX, mb: expandNetworkSection ? 3 : 0 }}
+                onClick={() => setExpandNetworkSection(!expandNetworkSection)}
+              >
+                <IconButton size="small">
+                  {expandNetworkSection ? (
+                    <ExpandMoreIcon />
+                  ) : (
+                    <KeyboardArrowRightIcon />
+                  )}
+                </IconButton>
                 <Typography variant="h5" sx={SECTION_TITLE_SX}>
                   GPU and Inter-Node Network
                 </Typography>
               </Box>
+              <Collapse in={expandNetworkSection}>
               <Box
                 sx={{
                   display: 'flex',
@@ -2254,13 +2131,27 @@ function JobPerformanceDetailPage() {
                   </TableContainer>
                 </Box>
               </Collapse>
+              </Collapse>
             </Paper>
 
             {/* Roofline Analysis */}
             <Paper id="roofline" sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}>
-              <Typography variant="h6" sx={{ ...SECTION_TITLE_SX, mb: 2 }}>
-                Roofline Analysis
-              </Typography>
+              <Box
+                sx={{ ...SECTION_TOGGLE_SX, mb: expandRooflineSection ? 2 : 0 }}
+                onClick={() => setExpandRooflineSection(!expandRooflineSection)}
+              >
+                <IconButton size="small">
+                  {expandRooflineSection ? (
+                    <ExpandMoreIcon />
+                  ) : (
+                    <KeyboardArrowRightIcon />
+                  )}
+                </IconButton>
+                <Typography variant="h5" sx={SECTION_TITLE_SX}>
+                  Roofline Analysis
+                </Typography>
+              </Box>
+              <Collapse in={expandRooflineSection}>
               <Plot
                 data={rooflineData}
                 layout={{
@@ -2419,6 +2310,7 @@ function JobPerformanceDetailPage() {
                   <ArrowForwardIcon fontSize="small" />
                 </Link>
               </Box>
+              </Collapse>
             </Paper>
           </Grid>
 
@@ -2554,27 +2446,7 @@ function JobPerformanceDetailPage() {
                 >
                   Memory Utilization
                 </Link>
-                <Link
-                  component="button"
-                  onClick={() => handleNavClick('gpu-performance')}
-                  underline="hover"
-                  variant="body2"
-                  sx={{
-                    textAlign: 'left',
-                    color:
-                      activeSection === 'gpu-performance'
-                        ? 'primary.main'
-                        : 'text.primary',
-                    fontWeight: activeSection === 'gpu-performance' ? 600 : 400,
-                    cursor: 'pointer',
-                    border: 'none',
-                    background: 'none',
-                    padding: 0,
-                  }}
-                >
-                  GPU Performance
-                </Link>
-               
+                
                 <Link
                   component="button"
                   onClick={() => handleNavClick('power')}
@@ -2761,10 +2633,9 @@ function generateResourceUtilizationData(
       x: timeAxis,
       y: gpuSeries,
       type: 'scatter' as const,
-      mode: 'lines+markers' as const,
+      mode: 'lines' as const,
       name: 'GPU',
       line: { color: COLOR_TOKENS.gpu, width: 2 },
-      marker: { size: 4 },
     },
   ];
 }
@@ -3195,7 +3066,7 @@ function generateUtilizationNodesData(
   cpuSeries: number[],
   gpuSeries: number[],
   timeAxis: number[]
-) {
+): UtilizationNodeRow[] {
   const baseCpu =
     cpuSeries.length > 0
       ? cpuSeries.reduce((sum, value) => sum + value, 0) / cpuSeries.length
@@ -3233,4 +3104,90 @@ function generateUtilizationNodesData(
       gpuMax: clampPercent(gpuMean * 1.22),
     };
   });
+}
+
+function buildUtilizationBandTraces(
+  nodeRows: UtilizationNodeRow[],
+  meanTraces: Array<{
+    x: number[];
+    y: number[];
+    name: string;
+    line?: { color?: string; width?: number };
+  }>
+) {
+  if (!nodeRows.length) {
+    return [];
+  }
+
+  const time = nodeRows[0]?.time ?? [];
+  const buildMetricTraces = (
+    trace: {
+      x: number[];
+      y: number[];
+      name: string;
+      line?: { color?: string; width?: number };
+    },
+    seriesKey: 'cpuSeries' | 'gpuSeries',
+    includeTimeLabel: boolean
+  ) => {
+    const label = trace.name as 'CPU' | 'GPU';
+    const color =
+      trace.line?.color ??
+      (label === 'CPU' ? COLOR_TOKENS.cpu : COLOR_TOKENS.gpu);
+    const stats = time.map((_, index) => {
+      const values = nodeRows.map((row) => row[seriesKey][index] ?? 0);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const mean = Number(trace.y[index] ?? 0);
+
+      return { min, max, mean };
+    });
+
+    return [
+      {
+        x: time,
+        y: stats.map((point) => point.max),
+        type: 'scatter' as const,
+        mode: 'lines' as const,
+        line: { color: 'transparent', width: 0 },
+        hoverinfo: 'skip' as const,
+        showlegend: false,
+        name: `${label} Max`,
+      },
+      {
+        x: time,
+        y: stats.map((point) => point.min),
+        type: 'scatter' as const,
+        mode: 'lines' as const,
+        line: { color: 'transparent', width: 0 },
+        fill: 'tonexty' as const,
+        fillcolor: rgba(color, 0.14),
+        hoverinfo: 'skip' as const,
+        showlegend: false,
+        name: `${label} Range`,
+      },
+      {
+        x: trace.x,
+        y: trace.y,
+        type: 'scatter' as const,
+        mode: 'lines' as const,
+        name: label,
+        line: { color, width: trace.line?.width ?? 2.5 },
+        customdata: stats.map((point) => [point.min, point.max, point.mean]),
+        hovertemplate:
+          `<br><b>${label}</b><br>` +
+          `Mean: <b>%{customdata[2]:.2f}%</b><br>` +
+          `Min: %{customdata[0]:.2f}%<br>` +
+          `Max: %{customdata[1]:.2f}%<extra></extra>`,
+      },
+    ];
+  };
+
+  const gpuTrace = meanTraces.find((trace) => trace.name === 'GPU');
+  const cpuTrace = meanTraces.find((trace) => trace.name === 'CPU');
+
+  return [
+    ...(gpuTrace ? buildMetricTraces(gpuTrace, 'gpuSeries', true) : []),
+    ...(cpuTrace ? buildMetricTraces(cpuTrace, 'cpuSeries', false) : []),
+  ];
 }

@@ -1,32 +1,32 @@
 import { createFileRoute, Link as RouterLink } from '@tanstack/react-router';
 import {
+  Autocomplete,
   Box,
   Breadcrumbs,
   Button,
-  Checkbox,
   Chip,
   FormControl,
   FormControlLabel,
   Grid,
   InputLabel,
-  ListItemText,
   Link,
   MenuItem,
   Paper,
   Radio,
   RadioGroup,
   Select,
-  SelectChangeEvent,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
-import { useEffect, useMemo, useState } from 'react';
+import { SyntheticEvent, useEffect, useMemo, useState } from 'react';
 import Plot from 'react-plotly.js';
 import { useDataFromSource } from '../../hooks/useDataFromSource';
 
@@ -43,15 +43,24 @@ interface MetricRow {
 interface UserJobData {
   'Job ID': number;
   'Project': string;
+  'Job Name'?: string;
 }
 
 type MetricsByJob = Record<string, MetricRow[]>;
+
+interface JobOption {
+  id: string;
+  jobName: string;
+  projectId: string;
+  searchText: string;
+}
 
 const formatMetricName = (metric: string) =>
   metric.replace('nersc_ldms_dcgm_', '').replace(/_/g, ' ');
 
 const formatValue = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
 const DUMMY_JOB_COUNT = 5;
+const SYNTHETIC_PROJECT_IDS = ['m842', 'm984', 'm2137', 'm5560', 'm7781'] as const;
 
 function CompareJobsPage() {
   const metricsByJob = useDataFromSource(
@@ -62,7 +71,7 @@ function CompareJobsPage() {
   ) as UserJobData[] | undefined;
 
   const [machine, setMachine] = useState('perlmutter gpu');
-  const [project, setProject] = useState('m123123');
+  const [jobSearchInput, setJobSearchInput] = useState('');
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [comparedJobs, setComparedJobs] = useState<string[]>([]);
   const [selectedMetric, setSelectedMetric] = useState('');
@@ -140,21 +149,45 @@ function CompareJobsPage() {
     [metricNames, gpuMetrics, cpuMetrics, networkMetrics]
   );
 
-  const jobOptions = useMemo(() => {
+  const jobOptions = useMemo<JobOption[]>(() => {
     if (!allMetricsByJob) {
       return [];
     }
     const metricsJobIds = Object.keys(allMetricsByJob);
-    const projectByJob = new Map<string, string>();
+    const userJobById = new Map<string, UserJobData>();
     (userJobs ?? []).forEach((job) => {
-      projectByJob.set(job['Job ID'].toString(), job['Project']);
+      userJobById.set(job['Job ID'].toString(), job);
     });
-    return metricsJobIds.map((jobId) => ({
-      id: jobId,
-      label: `Job ID ${jobId}`,
-      projectId: projectByJob.get(jobId) ?? 'Unknown',
-    }));
+    return metricsJobIds.map((jobId, index) => {
+      const matchedJob = userJobById.get(jobId);
+      const projectId =
+        matchedJob?.Project ?? SYNTHETIC_PROJECT_IDS[index % SYNTHETIC_PROJECT_IDS.length];
+      const jobName =
+        matchedJob?.['Job Name']?.trim() ||
+        (matchedJob
+          ? `Perlmutter GPU job ${jobId}`
+          : `Optimization candidate ${index + 1}`);
+
+      return {
+        id: jobId,
+        jobName,
+        projectId,
+        searchText: `${jobId} ${jobName} ${projectId}`.toLowerCase(),
+      };
+    });
   }, [allMetricsByJob, userJobs]);
+
+  const selectedJobOptions = useMemo(() => {
+    const jobOptionById = new Map(jobOptions.map((job) => [job.id, job]));
+    return selectedJobs
+      .map((jobId) => jobOptionById.get(jobId))
+      .filter((job): job is JobOption => Boolean(job));
+  }, [jobOptions, selectedJobs]);
+
+  const searchableJobOptions = useMemo(() => {
+    const selectedJobIds = new Set(selectedJobs);
+    return jobOptions.filter((job) => !selectedJobIds.has(job.id));
+  }, [jobOptions, selectedJobs]);
 
   useEffect(() => {
     if (!selectedMetric && metricNames.length) {
@@ -166,14 +199,11 @@ function CompareJobsPage() {
 
   useEffect(() => {
     if (!selectedJobs.length && jobOptions.length) {
-      const defaultJobs = jobOptions.slice(0, 6).map((job) => job.id);
+      const defaultJobs = jobOptions.slice(0, 2).map((job) => job.id);
       setSelectedJobs(defaultJobs);
       setComparedJobs(defaultJobs);
-      if (jobOptions[0].projectId !== 'Unknown') {
-        setProject(jobOptions[0].projectId);
-      }
     }
-  }, [selectedJobs.length, jobOptions]);
+  }, [jobOptions, selectedJobs.length]);
 
   const chartTraces = useMemo(() => {
     if (!allMetricsByJob || !selectedMetric) {
@@ -222,11 +252,16 @@ function CompareJobsPage() {
     });
   }, [allMetricsByJob, comparedJobs, selectedMetric]);
 
-  const handleJobsChange = (event: SelectChangeEvent<string[]>) => {
-    const value = event.target.value;
-    const nextSelectedJobs = typeof value === 'string' ? value.split(',') : value;
+  const handleJobAdd = (_event: SyntheticEvent, value: JobOption | null) => {
+    if (!value || selectedJobs.includes(value.id)) {
+      setJobSearchInput('');
+      return;
+    }
+
+    const nextSelectedJobs = [...selectedJobs, value.id];
     setSelectedJobs(nextSelectedJobs);
     setComparedJobs(nextSelectedJobs);
+    setJobSearchInput('');
   };
 
   const handleRemoveComparedJob = (jobIdToRemove: string) => {
@@ -268,38 +303,47 @@ function CompareJobsPage() {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={2}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Project</InputLabel>
-              <Select
-                label="Project"
-                value={project}
-                onChange={(event) => setProject(event.target.value)}
-              >
-                <MenuItem value={project}>{project}</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Select Jobs</InputLabel>
-              <Select
-                multiple
-                label="Select Jobs"
-                value={selectedJobs}
-                onChange={handleJobsChange}
-                renderValue={(selected) =>
-                  selected.length ? selected.map((jobId) => `Job ${jobId}`).join(', ') : 'Select Jobs'
+          <Grid item xs={12} md={7}>
+            <Autocomplete
+              options={searchableJobOptions}
+              value={null}
+              inputValue={jobSearchInput}
+              onInputChange={(_event, value) => setJobSearchInput(value)}
+              onChange={handleJobAdd}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              getOptionLabel={(option) => `Job ${option.id} - ${option.jobName}`}
+              filterOptions={(options, state) => {
+                const query = state.inputValue.trim().toLowerCase();
+                if (!query) {
+                  return options;
                 }
-              >
-                {jobOptions.map((job) => (
-                  <MenuItem key={job.id} value={job.id}>
-                    <Checkbox checked={selectedJobs.includes(job.id)} size="small" />
-                    <ListItemText primary={job.label} />
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+
+                return options.filter((option) => option.searchText.includes(query));
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Select Jobs"
+                  placeholder="Search job data and select to add"
+                  size="small"
+                />
+              )}
+              renderOption={(props, option) => {
+                const { key, ...optionProps } = props;
+                return (
+                  <Box component="li" key={key} {...optionProps}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {option.jobName}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#64748b' }}>
+                        Job ID {option.id} • Project {option.projectId}
+                      </Typography>
+                    </Box>
+                  </Box>
+                );
+              }}
+            />
           </Grid>
           <Grid item xs={12} md={1}>
             <Button
@@ -312,6 +356,28 @@ function CompareJobsPage() {
             </Button>
           </Grid>
         </Grid>
+      </Paper>
+
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            {selectedJobOptions.length} jobs selected:
+          </Typography>
+          {selectedJobOptions.map((job) => (
+            <Tooltip
+              key={job.id}
+              title={`Project ${job.projectId} • Job ID ${job.id}`}
+              arrow
+            >
+              <Chip
+                label={job.jobName}
+                onDelete={() => handleRemoveComparedJob(job.id)}
+                variant="outlined"
+                sx={{ bgcolor: '#fff' }}
+              />
+            </Tooltip>
+          ))}
+        </Box>
       </Paper>
 
       <Grid container spacing={2}>
@@ -386,20 +452,6 @@ function CompareJobsPage() {
 
         <Grid item xs={12} md={9} lg={9.5}>
           <Paper sx={{ p: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 2 }}>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                Selected Jobs:
-              </Typography>
-              {comparedJobs.map((jobId) => (
-                <Chip
-                  key={jobId}
-                  label={`Job ID ${jobId}`}
-                  onDelete={() => handleRemoveComparedJob(jobId)}
-                  sx={{ bgcolor: '#eceff3' }}
-                />
-              ))}
-            </Box>
-
             <Paper sx={{ p: 2, bgcolor: '#f8fafc', mb: 3 }}>
               <Typography variant="h4" sx={{ fontWeight: 700, textAlign: 'center', mb: 0.5 }}>
                 {formatMetricName(selectedMetric)}
