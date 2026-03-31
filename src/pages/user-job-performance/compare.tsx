@@ -1,5 +1,8 @@
 import { createFileRoute, Link as RouterLink } from '@tanstack/react-router';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Autocomplete,
   Box,
   Breadcrumbs,
@@ -8,6 +11,7 @@ import {
   FormControl,
   FormControlLabel,
   Grid,
+  IconButton,
   InputLabel,
   Link,
   MenuItem,
@@ -15,6 +19,9 @@ import {
   Radio,
   RadioGroup,
   Select,
+  Slider,
+  Stack,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -26,6 +33,10 @@ import {
   Typography,
 } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
+import SearchIcon from '@mui/icons-material/Search';
 import { SyntheticEvent, useEffect, useMemo, useState } from 'react';
 import Plot from 'react-plotly.js';
 import { useDataFromSource } from '../../hooks/useDataFromSource';
@@ -44,6 +55,10 @@ interface UserJobData {
   'Job ID': number;
   'Project': string;
   'Job Name'?: string;
+  'Start Time'?: string;
+  'End Time'?: string;
+  'Hostname'?: string;
+  'Charged Node Hours'?: number;
 }
 
 type MetricsByJob = Record<string, MetricRow[]>;
@@ -55,12 +70,90 @@ interface JobOption {
   searchText: string;
 }
 
+interface MetricDefinition {
+  label: string;
+  aliases: string[];
+}
+
+interface MetricCategory {
+  id: string;
+  title: string;
+  metrics: MetricDefinition[];
+}
+
+interface CuratedMetric extends MetricDefinition {
+  categoryId: string;
+  categoryTitle: string;
+  metricId: string;
+  searchText: string;
+  availableAlias: string | undefined;
+  isAvailable: boolean;
+}
+
+interface FocusTimeWindow {
+  start: string;
+  end: string;
+}
+
+type RelativeFocusWindow = [number, number];
+
 const formatMetricName = (metric: string) =>
   metric.replace('nersc_ldms_dcgm_', '').replace(/_/g, ' ');
+
+const toDateTimeLocalValue = (value?: string) => (value ? value.replace(' ', 'T') : '');
 
 const formatValue = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
 const DUMMY_JOB_COUNT = 5;
 const SYNTHETIC_PROJECT_IDS = ['m842', 'm984', 'm2137', 'm5560', 'm7781'] as const;
+const METRIC_CATEGORIES: MetricCategory[] = [
+  {
+    id: 'efficiency-snapshot',
+    title: 'Efficiency Snapshot',
+    metrics: [
+      { label: 'GPU Utilization (%)', aliases: ['nersc_ldms_dcgm_gpu_utilization'] },
+      { label: 'GPU Memory footprint: FB Used, FB Free', aliases: ['nersc_ldms_dcgm_fb_used', 'nersc_ldms_dcgm_fb_free'] },
+      { label: 'GPU Memory Bandwidth Utilization (%)', aliases: ['nersc_ldms_dcgm_dram_active'] },
+      { label: 'CPU Utilization (%)', aliases: ['nersc_ldms_dcgm_cpu_utilization', 'nersc_ldms_cpu_utilization'] },
+      { label: 'CPU Host Memory Usage', aliases: ['nersc_ldms_cpu_host_memory_usage', 'nersc_ldms_mem_used'] },
+      { label: 'CPU Memory Bandwidth', aliases: ['nersc_ldms_cpu_memory_bandwidth'] },
+    ],
+  },
+  {
+    id: 'gpu-compute',
+    title: 'More GPU Compute Metrics',
+    metrics: [
+      { label: 'GPU SM Active (%)', aliases: ['nersc_ldms_dcgm_sm_active'] },
+      { label: 'GPU Tensor Active (%)', aliases: ['nersc_ldms_dcgm_tensor_active'] },
+      { label: 'GPU Tensor HMMA Active', aliases: ['nersc_ldms_dcgm_tensor_hmma_active'] },
+      { label: 'GPU Tensor IMMA Active', aliases: ['nersc_ldms_dcgm_tensor_imma_active'] },
+      { label: 'GPU FP16 Active', aliases: ['nersc_ldms_dcgm_fp16_active'] },
+      { label: 'GPU FP32 Active', aliases: ['nersc_ldms_dcgm_fp32_active'] },
+      { label: 'GPU FP64 Active', aliases: ['nersc_ldms_dcgm_fp64_active'] },
+    ],
+  },
+  {
+    id: 'power-usage',
+    title: 'Power Usage',
+    metrics: [
+      { label: 'GPU Power', aliases: ['nersc_ldms_dcgm_power_usage'] },
+      { label: 'CPU Power', aliases: ['nersc_ldms_cpu_power'] },
+      { label: 'Node Power', aliases: ['nersc_ldms_node_power'] },
+      { label: 'Memory Power', aliases: ['nersc_ldms_memory_power'] },
+      { label: 'Total GPU Energy Consumed', aliases: ['nersc_ldms_dcgm_total_energy_consumption', 'nersc_ldms_dcgm_energy_consumption'] },
+    ],
+  },
+  {
+    id: 'communication-network',
+    title: 'Communication / Network Metrics',
+    metrics: [
+      { label: 'PCIe Throughput (MB/s)', aliases: ['nersc_ldms_dcgm_pcie_tx_throughput', 'nersc_ldms_dcgm_pcie_rx_throughput'] },
+      { label: 'NVLink Throughput (GB/s)', aliases: ['nersc_ldms_dcgm_nvlink_tx_throughput', 'nersc_ldms_dcgm_nvlink_rx_throughput'] },
+      { label: 'Internode Network Throughput', aliases: ['nersc_ldms_network_throughput', 'nersc_ldms_internode_network_throughput'] },
+      { label: 'NIC Utilization Balance', aliases: ['nersc_ldms_nic_utilization_balance'] },
+      { label: 'NIC Throughput (Packets/sec)', aliases: ['nersc_ldms_nic_throughput_packets_sec', 'nersc_ldms_nic_packets_per_sec'] },
+    ],
+  },
+];
 
 function CompareJobsPage() {
   const metricsByJob = useDataFromSource(
@@ -77,6 +170,18 @@ function CompareJobsPage() {
   const [selectedMetric, setSelectedMetric] = useState('');
   const [granularity, setGranularity] = useState('job-level');
   const [aggregation, setAggregation] = useState('mean');
+  const [downsamplingFunction, setDownsamplingFunction] = useState('mean');
+  const [downsamplingWindow, setDownsamplingWindow] = useState('1 min');
+  const [useRelativeFocusWindow, setUseRelativeFocusWindow] = useState(false);
+  const [focusNodesByJob, setFocusNodesByJob] = useState<Record<string, string[]>>({});
+  const [focusTimeWindowByJob, setFocusTimeWindowByJob] = useState<Record<string, FocusTimeWindow>>({});
+  const [relativeFocusWindowByJob, setRelativeFocusWindowByJob] = useState<Record<string, RelativeFocusWindow>>({});
+  const [metricSearchInput, setMetricSearchInput] = useState('');
+  const [pinnedMetricIds, setPinnedMetricIds] = useState<string[]>([]);
+  const [isAggregationExpanded, setIsAggregationExpanded] = useState(false);
+  const [isDownsamplingExpanded, setIsDownsamplingExpanded] = useState(false);
+  const [isFocusExpanded, setIsFocusExpanded] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<string[]>(['efficiency-snapshot']);
 
   const allMetricsByJob = useMemo(() => {
     if (!metricsByJob) {
@@ -135,19 +240,56 @@ function CompareJobsPage() {
     );
   }, [allMetricsByJob]);
 
-  const gpuMetrics = useMemo(
-    () => metricNames.filter((metric) => metric.includes('gpu') || metric.includes('sm_') || metric.includes('tensor')),
-    [metricNames]
-  );
-  const cpuMetrics = useMemo(() => metricNames.filter((metric) => metric.includes('cpu')), [metricNames]);
-  const networkMetrics = useMemo(
-    () => metricNames.filter((metric) => metric.includes('network') || metric.includes('net')),
-    [metricNames]
-  );
-  const otherMetrics = useMemo(
-    () => metricNames.filter((metric) => !gpuMetrics.includes(metric) && !cpuMetrics.includes(metric) && !networkMetrics.includes(metric)),
-    [metricNames, gpuMetrics, cpuMetrics, networkMetrics]
-  );
+  const availableMetricNames = useMemo(() => new Set(metricNames), [metricNames]);
+
+  const curatedMetricGroups = useMemo(() => {
+    return METRIC_CATEGORIES.map((category) => {
+      const metrics = category.metrics.map((metric) => {
+        const availableAlias = metric.aliases.find((alias) => availableMetricNames.has(alias));
+        return {
+          ...metric,
+          categoryId: category.id,
+          categoryTitle: category.title,
+          metricId: `${category.id}:${metric.label}`,
+          searchText: `${category.title} ${metric.label} ${metric.aliases.join(' ')}`.toLowerCase(),
+          availableAlias,
+          isAvailable: Boolean(availableAlias),
+        } satisfies CuratedMetric;
+      });
+
+      return {
+        ...category,
+        metrics,
+      };
+    });
+  }, [availableMetricNames]);
+
+  const filteredMetricGroups = useMemo(() => {
+    const search = metricSearchInput.trim().toLowerCase();
+    const pinnedMetricIdSet = new Set(pinnedMetricIds);
+
+    return curatedMetricGroups
+      .map((category) => {
+        const metrics = category.metrics.filter((metric) => {
+          const matchesSearch = !search || metric.searchText.includes(search);
+          return matchesSearch && !pinnedMetricIdSet.has(metric.metricId);
+        });
+
+        return {
+          ...category,
+          metrics,
+        };
+      })
+      .filter((category) => category.metrics.length > 0);
+  }, [curatedMetricGroups, metricSearchInput, pinnedMetricIds]);
+
+  const pinnedMetrics = useMemo(() => {
+    const pinnedMetricIdSet = new Set(pinnedMetricIds);
+
+    return curatedMetricGroups
+      .flatMap((category) => category.metrics)
+      .filter((metric) => pinnedMetricIdSet.has(metric.metricId));
+  }, [curatedMetricGroups, pinnedMetricIds]);
 
   const jobOptions = useMemo<JobOption[]>(() => {
     if (!allMetricsByJob) {
@@ -189,6 +331,41 @@ function CompareJobsPage() {
     return jobOptions.filter((job) => !selectedJobIds.has(job.id));
   }, [jobOptions, selectedJobs]);
 
+  const jobMetadataById = useMemo(() => {
+    const metadata = new Map<string, UserJobData>();
+    (userJobs ?? []).forEach((job) => {
+      metadata.set(job['Job ID'].toString(), job);
+    });
+    return metadata;
+  }, [userJobs]);
+
+  const focusableJobOptions = useMemo(() => {
+    const jobOptionById = new Map(jobOptions.map((job) => [job.id, job]));
+    return comparedJobs
+      .map((jobId) => jobOptionById.get(jobId))
+      .filter((job): job is JobOption => Boolean(job))
+      .slice(0, 5);
+  }, [comparedJobs, jobOptions]);
+
+  const nodeOptionsByJob = useMemo(() => {
+    const entries = focusableJobOptions.map((job) => {
+      const jobMetadata = jobMetadataById.get(job.id);
+      const hostname = jobMetadata?.Hostname?.trim() || 'perlmutter-gpu';
+      const baseName = hostname.toLowerCase().replace(/\s+/g, '-');
+      const estimatedNodeCount = Math.min(
+        5,
+        Math.max(2, Math.round((jobMetadata?.['Charged Node Hours'] ?? 0.75) * 4))
+      );
+      const nodes = Array.from({ length: estimatedNodeCount }, (_value, index) =>
+        `${baseName}-node-${String(index + 1).padStart(2, '0')}`
+      );
+
+      return [job.id, nodes] as const;
+    });
+
+    return Object.fromEntries(entries);
+  }, [focusableJobOptions, jobMetadataById]);
+
   useEffect(() => {
     if (!selectedMetric && metricNames.length) {
       setSelectedMetric(
@@ -204,6 +381,31 @@ function CompareJobsPage() {
       setComparedJobs(defaultJobs);
     }
   }, [jobOptions, selectedJobs.length]);
+
+  useEffect(() => {
+    if (!focusableJobOptions.length) {
+      return;
+    }
+
+    setFocusTimeWindowByJob((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      focusableJobOptions.forEach((job) => {
+        const jobId = job.id;
+        if (!next[jobId]) {
+          const jobMetadata = jobMetadataById.get(jobId);
+          next[jobId] = {
+            start: toDateTimeLocalValue(jobMetadata?.['Start Time']),
+            end: toDateTimeLocalValue(jobMetadata?.['End Time']),
+          };
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [focusableJobOptions, jobMetadataById]);
 
   const chartTraces = useMemo(() => {
     if (!allMetricsByJob || !selectedMetric) {
@@ -268,6 +470,79 @@ function CompareJobsPage() {
     const nextSelectedJobs = selectedJobs.filter((jobId) => jobId !== jobIdToRemove);
     setSelectedJobs(nextSelectedJobs);
     setComparedJobs(nextSelectedJobs);
+  };
+
+  const handleMetricCategoryToggle = (categoryId: string) => (
+    _event: SyntheticEvent,
+    expanded: boolean
+  ) => {
+    setExpandedCategories((current) =>
+      expanded ? [...new Set([...current, categoryId])] : current.filter((id) => id !== categoryId)
+    );
+  };
+
+  const handleTogglePinnedMetric = (metricId: string) => {
+    setPinnedMetricIds((current) =>
+      current.includes(metricId)
+        ? current.filter((id) => id !== metricId)
+        : [...current, metricId]
+    );
+  };
+
+  const handleFocusedNodesChange = (jobId: string, value: string[]) => {
+    setFocusNodesByJob((current) => ({
+      ...current,
+      [jobId]: value,
+    }));
+  };
+
+  const handleFocusTimeWindowChange = (
+    jobId: string,
+    field: keyof FocusTimeWindow,
+    value: string
+  ) => {
+    setFocusTimeWindowByJob((current) => ({
+      ...current,
+      [jobId]: {
+        start: current[jobId]?.start ?? '',
+        end: current[jobId]?.end ?? '',
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleRelativeFocusWindowChange = (jobId: string, value: number[]) => {
+    setRelativeFocusWindowByJob((current) => ({
+      ...current,
+      [jobId]: [value[0], value[1]],
+    }));
+  };
+
+  const granularityLabelByValue: Record<string, string> = {
+    'job-level': 'Job level',
+    'node-level': 'Node level',
+    'gpu-level': 'GPU level',
+  };
+
+  const aggregationLabelByValue: Record<string, string> = {
+    mean: 'Mean over GPUs (Intra Node)',
+    sum_gpus: 'Sum over GPUs (Intra Node)',
+    average: 'Mean over Nodes',
+    sum_nodes: 'Sum over Nodes',
+  };
+
+  const downsamplingFunctionLabelByValue: Record<string, string> = {
+    mean: 'Mean',
+    max: 'Max',
+    min: 'Min',
+    p95: 'P95',
+  };
+
+  const downsamplingWindowLabelByValue: Record<string, string> = {
+    '1 min': '1 min',
+    '5 min': '5 min',
+    '15 min': '15 min',
+    '30 min': '30 min',
   };
 
   return (
@@ -383,70 +658,689 @@ function CompareJobsPage() {
       <Grid container spacing={2}>
         <Grid item xs={12} md={3} lg={2.5}>
           <Paper sx={{ p: 2, height: '100%' }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
-              Metrics
-            </Typography>
+            <Stack spacing={1.5}>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                  Metrics
+                </Typography>
+              </Box>
 
-            <Typography variant="subtitle2" sx={{ mt: 1 }}>
-              GPU Metrics
-            </Typography>
-            <RadioGroup value={selectedMetric} onChange={(event) => setSelectedMetric(event.target.value)}>
-              {(gpuMetrics.length ? gpuMetrics : metricNames.slice(0, 6)).map((metric) => (
-                <FormControlLabel
-                  key={metric}
-                  value={metric}
-                  control={<Radio size="small" />}
-                  label={formatMetricName(metric)}
-                />
-              ))}
-              {otherMetrics.map((metric) => (
-                <FormControlLabel
-                  key={metric}
-                  value={metric}
-                  control={<Radio size="small" />}
-                  label={formatMetricName(metric)}
-                />
-              ))}
-            </RadioGroup>
+              <TextField
+                value={metricSearchInput}
+                onChange={(event) => setMetricSearchInput(event.target.value)}
+                placeholder="Search metrics or categories"
+                size="small"
+                InputProps={{
+                  startAdornment: <SearchIcon sx={{ color: '#94a3b8', mr: 1, fontSize: 20 }} />,
+                }}
+              />
 
-            <Typography variant="subtitle2" sx={{ mt: 1 }}>
-              CPU Metrics
-            </Typography>
-            {(cpuMetrics.length ? cpuMetrics : ['No CPU metrics']).map((metric) => (
-              <Typography key={metric} variant="body2" sx={{ color: '#64748b', ml: 1 }}>
-                {metric === 'No CPU metrics' ? metric : formatMetricName(metric)}
-              </Typography>
-            ))}
+              <RadioGroup
+                value={selectedMetric}
+                onChange={(event) => setSelectedMetric(event.target.value)}
+              >
+                {pinnedMetrics.length > 0 && (
+                  <Box
+                    sx={{
+                      borderTop: '1px solid #e2e8f0',
+                      borderBottom: '1px solid #e2e8f0',
+                      py: 1,
+                      mb: 0.5,
+                    }}
+                  >
+                    <Box sx={{ px: 1.5, pb: 0.5, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <PushPinIcon sx={{ color: '#94a3b8', fontSize: 14, flexShrink: 0 }} />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                        Pinned Metrics
+                      </Typography>
+                    </Box>
+                    {pinnedMetrics.map((metric) => {
+                      const optionValue = metric.availableAlias ?? metric.metricId;
 
-            <Typography variant="subtitle2" sx={{ mt: 1 }}>
-              Network Metrics
-            </Typography>
-            {(networkMetrics.length ? networkMetrics : ['No network metrics']).map((metric) => (
-              <Typography key={metric} variant="body2" sx={{ color: '#64748b', ml: 1 }}>
-                {metric === 'No network metrics' ? metric : formatMetricName(metric)}
-              </Typography>
-            ))}
+                      return (
+                        <FormControlLabel
+                          key={metric.metricId}
+                          value={optionValue}
+                          control={<Radio size="small" />}
+                          sx={{
+                            alignItems: 'flex-start',
+                            mx: 0,
+                            my: 0.25,
+                            px: 1.5,
+                            '&:hover .metric-pin-button, &:hover .metric-availability-dot': {
+                              opacity: 1,
+                            },
+                          }}
+                          label={
+                            <Box
+                              sx={{
+                                py: 0.25,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 1,
+                                width: '100%',
+                              }}
+                            >
+                              <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                  {metric.label}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: '#64748b' }}>
+                                  {metric.categoryTitle}
+                                </Typography>
+                              </Box>
+                              <Box
+                                sx={{
+                                  ml: 'auto',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'flex-end',
+                                  gap: 0.5,
+                                  minWidth: 36,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <IconButton
+                                  className="metric-pin-button"
+                                  size="small"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    handleTogglePinnedMetric(metric.metricId);
+                                  }}
+                                  sx={{ p: 0.5, opacity: 0, transition: 'opacity 0.16s ease' }}
+                                >
+                                  <PushPinIcon sx={{ fontSize: 16, color: '#000000' }} />
+                                </IconButton>
+                                <Box
+                                  className="metric-availability-dot"
+                                  sx={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    bgcolor: metric.isAvailable ? '#16a34a' : 'transparent',
+                                    flexShrink: 0,
+                                    opacity: 0,
+                                    transition: 'opacity 0.16s ease',
+                                  }}
+                                />
+                              </Box>
+                            </Box>
+                          }
+                        />
+                      );
+                    })}
+                  </Box>
+                )}
 
-            <Typography variant="subtitle2" sx={{ mt: 2 }}>
-              Data Aggregation
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 1, color: '#64748b' }}>
-              Granularity
-            </Typography>
-            <RadioGroup value={granularity} onChange={(event) => setGranularity(event.target.value)}>
-              <FormControlLabel value="job-level" control={<Radio size="small" />} label="Job level" />
-              <FormControlLabel value="node-level" control={<Radio size="small" />} label="Node level" />
-              <FormControlLabel value="gpu-level" control={<Radio size="small" />} label="GPU level" />
-            </RadioGroup>
+                {filteredMetricGroups.map((category) => (
+                  <Accordion
+                    key={category.id}
+                    disableGutters
+                    expanded={expandedCategories.includes(category.id)}
+                    onChange={handleMetricCategoryToggle(category.id)}
+                    sx={{
+                      boxShadow: 'none',
+                      borderTop: '1px solid #e2e8f0',
+                      borderBottom: '1px solid #e2e8f0',
+                      borderLeft: 'none',
+                      borderRight: 'none',
+                      borderRadius: 0,
+                      bgcolor: 'transparent',
+                      mt: '-1px',
+                      '&:before': { display: 'none' },
+                    }}
+                  >
+                    <AccordionSummary
+                      expandIcon={<ExpandMoreIcon />}
+                      sx={{
+                        px: 1.5,
+                        flexDirection: 'row-reverse',
+                        '& .MuiAccordionSummary-content': {
+                          my: 1,
+                        },
+                        '& .MuiAccordionSummary-expandIconWrapper': {
+                          mr: 1,
+                        },
+                      }}
+                    >
+                      <Box sx={{ minWidth: 0 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                            {category.title}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </AccordionSummary>
+                    <AccordionDetails
+                      sx={{
+                        px: 1.5,
+                        pt: 0,
+                        pb: 1.25,
+                        display: category.id === 'power-usage' ? 'flex' : 'block',
+                        flexDirection: category.id === 'power-usage' ? 'column' : undefined,
+                        alignItems: category.id === 'power-usage' ? 'stretch' : undefined,
+                      }}
+                    >
+                      {category.metrics.map((metric) => {
+                        const optionValue = metric.availableAlias ?? metric.metricId;
+                        const isPinned = pinnedMetricIds.includes(metric.metricId);
 
-            <Typography variant="body2" sx={{ mt: 1, color: '#64748b' }}>
-              Aggregation Logic
-            </Typography>
-            <RadioGroup value={aggregation} onChange={(event) => setAggregation(event.target.value)}>
-              <FormControlLabel value="mean" control={<Radio size="small" />} label="Mean" />
-              <FormControlLabel value="average" control={<Radio size="small" />} label="Average" />
-              <FormControlLabel value="min" control={<Radio size="small" />} label="Min" />
-            </RadioGroup>
+                        return (
+                          <FormControlLabel
+                            key={metric.metricId}
+                            value={optionValue}
+                            control={<Radio size="small" />}
+                            sx={{
+                              alignItems: 'flex-start',
+                              display: 'flex',
+                              width: '100%',
+                              mx: 0,
+                              my: 0.25,
+                              '&:hover .metric-pin-button, &:hover .metric-availability-dot': {
+                                opacity: 1,
+                              },
+                            }}
+                            label={
+                              <Box
+                                sx={{
+                                  py: 0.25,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: 1,
+                                  width: '100%',
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                  {metric.label}
+                                </Typography>
+                                <Box
+                                  sx={{
+                                    ml: 'auto',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'flex-end',
+                                    gap: 0.5,
+                                    minWidth: 36,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <IconButton
+                                    className="metric-pin-button"
+                                    size="small"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      handleTogglePinnedMetric(metric.metricId);
+                                    }}
+                                    sx={{ p: 0.5, opacity: isPinned ? 1 : 0, transition: 'opacity 0.16s ease' }}
+                                  >
+                                    {isPinned ? (
+                                      <PushPinIcon sx={{ fontSize: 16, color: '#0f766e' }} />
+                                    ) : (
+                                      <PushPinOutlinedIcon sx={{ fontSize: 16, color: '#94a3b8' }} />
+                                    )}
+                                  </IconButton>
+                                  <Box
+                                    className="metric-availability-dot"
+                                    sx={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: '50%',
+                                      bgcolor: metric.isAvailable ? '#16a34a' : 'transparent',
+                                      flexShrink: 0,
+                                      opacity: 0,
+                                      transition: 'opacity 0.16s ease',
+                                    }}
+                                  />
+                                </Box>
+                              </Box>
+                            }
+                          />
+                        );
+                      })}
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </RadioGroup>
+
+              {!filteredMetricGroups.length && (
+                <Box
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    border: '1px dashed #cbd5e1',
+                    bgcolor: '#f8fafc',
+                  }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    No metrics match this filter
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#64748b' }}>
+                    Try clearing the search.
+                  </Typography>
+                </Box>
+              )}
+
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                      Controls
+                </Typography>
+              <Accordion
+                disableGutters
+                expanded={isAggregationExpanded}
+                onChange={(_event, expanded) => setIsAggregationExpanded(expanded)}
+                sx={{
+                  boxShadow: 'none',
+                  borderTop: '1px solid #e2e8f0',
+                  borderBottom: '1px solid #e2e8f0',
+                  borderLeft: 'none',
+                  borderRight: 'none',
+                  borderRadius: 0,
+                  bgcolor: 'transparent',
+                  mt: '-1px',
+                  '&:before': { display: 'none' },
+                }}
+              >
+                
+                <AccordionSummary
+                  expandIcon={<ExpandMoreIcon />}
+                  sx={{
+                    px: 1.5,
+                    flexDirection: 'row-reverse',
+                    '& .MuiAccordionSummary-content': {
+                      my: 1,
+                      display: 'block',
+                    },
+                    '& .MuiAccordionSummary-expandIconWrapper': {
+                      mr: 1,
+                    },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      minWidth: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: 0.75,
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      Data Aggregation
+                    </Typography>
+                    {!isAggregationExpanded && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Chip
+                          size="small"
+                          label={granularityLabelByValue[granularity]}
+                          sx={{
+                            height: 22,
+                            bgcolor: '#f1f5f9',
+                            color: '#334155',
+                            '& .MuiChip-label': { px: 1 },
+                          }}
+                        />
+                        <Chip
+                          size="small"
+                          label={aggregationLabelByValue[aggregation]}
+                          sx={{
+                            height: 22,
+                            bgcolor: '#f1f5f9',
+                            color: '#334155',
+                            '& .MuiChip-label': { px: 1 },
+                          }}
+                        />
+                      </Box>
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ px: 1.5, pt: 0, pb: 1.25 }}>
+                  <Stack spacing={2}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Granularity</InputLabel>
+                      <Select
+                        label="Granularity"
+                        value={granularity}
+                        onChange={(event) => setGranularity(event.target.value)}
+                      >
+                        <MenuItem value="job-level">Job level</MenuItem>
+                        <MenuItem value="node-level">Node level</MenuItem>
+                        <MenuItem value="gpu-level">GPU level</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Aggregation Level</InputLabel>
+                      <Select
+                        label="Aggregation Level"
+                        value={aggregation}
+                        onChange={(event) => setAggregation(event.target.value)}
+                      >
+                        <MenuItem value="mean">Mean over GPUs (Intra Node)</MenuItem>
+                        <MenuItem value="sum_gpus">Sum over GPUs (Intra Node)</MenuItem>
+                        <MenuItem value="average">Mean over Nodes</MenuItem>
+                        <MenuItem value="sum_nodes">Sum over Nodes</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Stack>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion
+                disableGutters
+                expanded={isDownsamplingExpanded}
+                onChange={(_event, expanded) => setIsDownsamplingExpanded(expanded)}
+                sx={{
+                  boxShadow: 'none',
+                  borderTop: '1px solid #e2e8f0',
+                  borderBottom: '1px solid #e2e8f0',
+                  borderLeft: 'none',
+                  borderRight: 'none',
+                  borderRadius: 0,
+                  bgcolor: 'transparent',
+                  mt: '-1px',
+                  '&:before': { display: 'none' },
+                }}
+              >
+                <AccordionSummary
+                  expandIcon={<ExpandMoreIcon />}
+                  sx={{
+                    px: 1.5,
+                    flexDirection: 'row-reverse',
+                    '& .MuiAccordionSummary-content': {
+                      my: 1,
+                      display: 'block',
+                    },
+                    '& .MuiAccordionSummary-expandIconWrapper': {
+                      mr: 1,
+                    },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      minWidth: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: 0.75,
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      Data Downsampling
+                    </Typography>
+                    {!isDownsamplingExpanded && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Chip
+                          size="small"
+                          label={downsamplingFunctionLabelByValue[downsamplingFunction]}
+                          sx={{
+                            height: 22,
+                            bgcolor: '#f1f5f9',
+                            color: '#334155',
+                            '& .MuiChip-label': { px: 1 },
+                          }}
+                        />
+                        <Chip
+                          size="small"
+                          label={downsamplingWindowLabelByValue[downsamplingWindow]}
+                          sx={{
+                            height: 22,
+                            bgcolor: '#f1f5f9',
+                            color: '#334155',
+                            '& .MuiChip-label': { px: 1 },
+                          }}
+                        />
+                      </Box>
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ px: 1.5, pt: 0, pb: 1.25 }}>
+                  <Stack spacing={2}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Downsampling Function</InputLabel>
+                      <Select
+                        label="Downsampling Function"
+                        value={downsamplingFunction}
+                        onChange={(event) => setDownsamplingFunction(event.target.value)}
+                      >
+                        <MenuItem value="mean">Mean</MenuItem>
+                        <MenuItem value="max">Max</MenuItem>
+                        <MenuItem value="min">Min</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Window</InputLabel>
+                      <Select
+                        label="Window"
+                        value={downsamplingWindow}
+                        onChange={(event) => setDownsamplingWindow(event.target.value)}
+                      >
+                        <MenuItem value="1 min">1 min</MenuItem>
+                        <MenuItem value="5 min">5 min</MenuItem>
+                        <MenuItem value="15 min">15 min</MenuItem>
+                        <MenuItem value="30 min">30 min</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Stack>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion
+                disableGutters
+                expanded={isFocusExpanded}
+                onChange={(_event, expanded) => setIsFocusExpanded(expanded)}
+                sx={{
+                  boxShadow: 'none',
+                  borderTop: '1px solid #e2e8f0',
+                  borderBottom: '1px solid #e2e8f0',
+                  borderLeft: 'none',
+                  borderRight: 'none',
+                  borderRadius: 0,
+                  bgcolor: 'transparent',
+                  mt: '-1px',
+                  '&:before': { display: 'none' },
+                }}
+              >
+                <AccordionSummary
+                  expandIcon={<ExpandMoreIcon />}
+                  sx={{
+                    px: 1.5,
+                    flexDirection: 'row-reverse',
+                    '& .MuiAccordionSummary-content': {
+                      my: 1,
+                      display: 'block',
+                    },
+                    '& .MuiAccordionSummary-expandIconWrapper': {
+                      mr: 1,
+                    },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      minWidth: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: 0.75,
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      Data Focus
+                    </Typography>
+                    {!isFocusExpanded && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Chip
+                          size="small"
+                          label={useRelativeFocusWindow ? 'Relative time window' : 'Specific time window'}
+                          sx={{
+                            height: 22,
+                            bgcolor: '#f1f5f9',
+                            color: '#334155',
+                            '& .MuiChip-label': { px: 1 },
+                          }}
+                        />
+                        <Chip
+                          size="small"
+                          label={`${focusableJobOptions.length} jobs`}
+                          sx={{
+                            height: 22,
+                            bgcolor: '#f1f5f9',
+                            color: '#334155',
+                            '& .MuiChip-label': { px: 1 },
+                          }}
+                        />
+                      </Box>
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ px: 1.5, pt: 0, pb: 1.25 }}>
+                  <Stack spacing={2}>
+                    <Typography variant="body2" sx={{ color: '#64748b' }}>
+                      Narrow analysis for the jobs already selected on the page. Use the toggle to
+                      switch between a specific time window per job or one shared relative window.
+                    </Typography>
+
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        py: 0.25,
+                      }}
+                    >
+                      
+                      <Switch
+                        checked={useRelativeFocusWindow}
+                        onChange={(event) => setUseRelativeFocusWindow(event.target.checked)}
+                      />
+                      <Box>
+                        <Typography variant="body2">
+                          Use relative time window
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    <Stack spacing={1.5}>
+                        {focusableJobOptions.map((job) => {
+                          const nodesForJob = nodeOptionsByJob[job.id] ?? [];
+                          const jobTimeWindow = focusTimeWindowByJob[job.id] ?? {
+                            start: '',
+                            end: '',
+                          };
+                          const relativeFocusWindow = relativeFocusWindowByJob[job.id] ?? [25, 75];
+
+                          return (
+                            <Box
+                              key={job.id}
+                              sx={{
+                                p: 1.25,
+                                borderRadius: 2,
+                                border: '1px solid #e2e8f0',
+                                bgcolor: '#f8fafc',
+                              }}
+                            >
+                              <Stack spacing={1.25}>
+                                <Box>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {job.jobName}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#64748b' }}>
+                                    Job ID {job.id} • Project {job.projectId}
+                                  </Typography>
+                                </Box>
+
+                                <Autocomplete
+                                  multiple
+                                  size="small"
+                                  options={nodesForJob}
+                                  value={focusNodesByJob[job.id] ?? []}
+                                  onChange={(_event, value) => handleFocusedNodesChange(job.id, value)}
+                                  renderInput={(params) => (
+                                    <TextField
+                                      {...params}
+                                      label="Nodes"
+                                      placeholder="Search or select nodes"
+                                    />
+                                  )}
+                                />
+
+                                {useRelativeFocusWindow ? (
+                                  <Box sx={{ px: 0.5, pt: 0.25 }}>
+                                    <Typography variant="caption" sx={{ color: '#64748b' }}>
+                                      Relative Time Window
+                                    </Typography>
+                                    <Slider
+                                      value={relativeFocusWindow}
+                                      onChange={(_event, value) =>
+                                        handleRelativeFocusWindowChange(job.id, value as number[])
+                                      }
+                                      valueLabelDisplay="auto"
+                                      valueLabelFormat={(value) => `${value}%`}
+                                      step={5}
+                                      min={0}
+                                      max={100}
+                                      disableSwap
+                                      sx={{ mt: 1 }}
+                                    />
+                                    <Box
+                                      sx={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        mt: 0.5,
+                                      }}
+                                    >
+                                      <Typography variant="caption" sx={{ color: '#64748b' }}>
+                                        Start {relativeFocusWindow[0]}%
+                                      </Typography>
+                                      <Typography variant="caption" sx={{ color: '#64748b' }}>
+                                        End {relativeFocusWindow[1]}%
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                ) : (
+                                  <Box sx={{ px: 0.5, pt: 0.25 }}>
+                                    <Grid container spacing={1.25}>
+                                      <Grid item xs={12}>
+                                        <TextField
+                                          fullWidth
+                                          size="small"
+                                          label="Start Time"
+                                          type="datetime-local"
+                                          value={jobTimeWindow.start}
+                                          onChange={(event) =>
+                                            handleFocusTimeWindowChange(job.id, 'start', event.target.value)
+                                          }
+                                          InputLabelProps={{ shrink: true }}
+                                        />
+                                      </Grid>
+                                      <Grid item xs={12}>
+                                        <TextField
+                                          fullWidth
+                                          size="small"
+                                          label="End Time"
+                                          type="datetime-local"
+                                          value={jobTimeWindow.end}
+                                          onChange={(event) =>
+                                            handleFocusTimeWindowChange(job.id, 'end', event.target.value)
+                                          }
+                                          InputLabelProps={{ shrink: true }}
+                                        />
+                                      </Grid>
+                                    </Grid>
+                                  </Box>
+                                )}
+                              </Stack>
+                            </Box>
+                          );
+                        })}
+                      </Stack>
+                  </Stack>
+                </AccordionDetails>
+              </Accordion>
+            </Stack>
           </Paper>
         </Grid>
 
