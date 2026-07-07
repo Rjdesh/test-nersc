@@ -12,6 +12,15 @@ coverage
 .env.*
 !.env.example
 
+src/utils/iris_sfapi_client_credentials.py
+src/utils/local_sfapi_client.py
+src/utils/b59-yellow-client.py
+src/utils/*sfapi*credential*.py
+src/utils/*sfapi*client*.py
+src/utils/__pycache__
+**/__pycache__
+*.pyc
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
