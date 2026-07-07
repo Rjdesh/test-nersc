@@ -1,0 +1,300 @@
+# User Job Performance Index: UI Data Requirements
+
+Source review:
+- List view implementation: `src/pages/user-job-performance/index.tsx`
+- Metadata normalization helper: `src/utils/job_metadata_helper.py`
+- Current sample payloads: `public/data/user-job-performance/user-jobs.json`, `public/data/user-job-performance/metrics-data.json`
+
+## Purpose
+
+This table maps the **Recent Jobs and Performance** index page UI to the data required to render it. It is grouped by the main feature areas on the page and distinguishes:
+- direct source fields already available
+- derived values computed in the UI
+- placeholder values that should become explicit API/data requirements
+
+## Summary By Main Feature
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| Page chrome | Breadcrumb label `For Users` / `Performance Metrics` | Static text | None | Static | No backend dependency. |
+| Page chrome | Page title `Your Job Performance` | Static text | None | Static | No backend dependency. |
+| Recent jobs list | Job Name | `jobName` | `Job Name` | Required source field | Falls back to ``${Partition} job`` if missing. Backend should provide a real job name whenever possible. |
+| Recent jobs list | Submit time | `startTime` | `Start Time` | Required source field | Displayed in short format with tooltip using full datetime. |
+| Recent jobs list | Job ID | `jobId` | `Job ID` | Required source field | Used for routing, row identity, selection, drawer lookup, compare flow, and metrics join. |
+| Recent jobs list | Project ID | `projectId` | `Project` | Required source field | Label in UI is `Project ID`; source payload currently uses `Project`. |
+| Recent jobs list | QOS | `qos` | `QOS` | Required source field | Direct display. |
+| Recent jobs list | Node Hours | `nodeHours` | `Charged Node Hours` | Required source field | Numeric value shown directly in grid and drawer. |
+| Recent jobs list | No. of Nodes | `nodeCount` | Derived from `Start Time`, `End Time`, `Charged Node Hours` | Derived field | UI computes `round(nodeHours / runtimeHours)`. Preferred backend field: explicit allocated node count. |
+| Recent jobs list | Wait Time | `waitTime` | None | Missing source field | Currently hard-coded from `fallbackWaitTimes`. This should become an explicit requirement from scheduler/job metadata. |
+| Recent jobs list | Run Time | `executionTime` | Derived from `Start Time`, `End Time` | Derived field | UI computes elapsed time. Backend may provide canonical runtime to avoid timezone/parsing inconsistencies. |
+| Recent jobs list | Job Status | `jobStatus` | `Job Status` | Required source field | Falls back to rotating demo statuses if missing. Backend should provide authoritative job state. |
+| Recent jobs list | GPU Utilization | `avgGpuUtilization` | Currently seeded from `Job ID`; could derive from `nersc_ldms_dcgm_gpu_utilization` | Missing / should be sourced | Grid currently shows dummy values. Requirement should be average GPU utilization per job over runtime. |
+| Recent jobs list | GPU Memory | `gpuMemoryUtilization` | Derived from `nersc_ldms_dcgm_dram_active` | Derived field | UI converts DRAM activity samples into a normalized percent. Confirm if this is the intended KPI. |
+| Recent jobs list | CPU Utilization | `cpuUtilization` | Derived from GPU utilization series or dummy heuristic | Missing / should be sourced | Current value is synthetic. Requirement should define true CPU utilization metric and aggregation. |
+| Recent jobs list | Energy Consumed (J) | `energyConsumed` | None | Missing source field | Currently seeded from `Job ID`. Requirement should specify authoritative energy total and units. |
+| Recent jobs list | End time | `endTime` | `End Time` | Required source field | Displayed in short format with tooltip using full datetime. |
+| Recent jobs list | Row checkbox selection | `rowSelectionModel` keyed by `id` | `Job ID` | Required source field | Needed to compare jobs. Max supported selected rows in UI is 5. |
+| List toolbar | Quick filter search | Data grid quick filter against visible columns | All visible list columns | Derived behavior | Searchability depends on the fields present in the row model. |
+| List toolbar | Column chooser | Column visibility model | All non-locked grid columns | Derived behavior | `jobName`, `jobStatus`, and selection/actions are intentionally non-toggleable. |
+| Compare CTA | Compare button enabled state | `selectedJobCount > 0` | `Job ID` | Derived behavior | Button state depends on row selection, not additional backend data. |
+| Compare CTA | Max selection tooltip | `selectedJobCount <= 5` | `Job ID` | Derived behavior | UI enforces max 5 jobs for compare workflow. |
+| Row actions | Quick View link | Opens drawer for selected row | `Job ID` and row payload | Required source field | Depends on complete row data plus metrics join for summary cards. |
+| Row actions | More actions menu `View Real Data` | Navigates to performance detail page | `Job ID` | Required source field | No extra payload required on index page beyond route param. |
+| Quick view drawer | Drawer header job name | `activeJob.jobName` | `Job Name` | Required source field | Same fallback caveat as grid. |
+| Quick view drawer | Drawer header job ID | `activeJob.jobId` | `Job ID` | Required source field | Direct display and deep-linking. |
+| Quick view drawer | Drawer header status chip | `activeJob.jobStatus` | `Job Status` | Required source field | Same fallback caveat as grid. |
+| Quick view drawer | Overview: submit time | `activeJob.startTime` | `Start Time` | Required source field | Formatted with full datetime. |
+| Quick view drawer | Overview: end time | `activeJob.endTime` | `End Time` | Required source field | Formatted with full datetime. |
+| Quick view drawer | Overview: wait time | `activeJob.waitTime` | None | Missing source field | Same current gap as grid. |
+| Quick view drawer | Overview: run time | `activeJob.executionTime` | Derived from `Start Time`, `End Time` | Derived field | Same current derivation as grid. |
+| Quick view drawer | Overview: project | `activeJob.projectId` | `Project` | Required source field | Direct display. |
+| Quick view drawer | Overview: QOS | `activeJob.qos` | `QOS` | Required source field | Direct display. |
+| Quick view drawer | Overview: partition | `activeJob.partition` | `Partition` | Required source field | Direct display. |
+| Quick view drawer | Overview: nodes | `activeJob.nodeCount` | Derived from `Start Time`, `End Time`, `Charged Node Hours` | Derived field | Prefer explicit source field if available. |
+| Quick view drawer | Overview: node hours | `activeJob.nodeHours` | `Charged Node Hours` | Required source field | Rendered to two decimals in drawer. |
+| Quick view drawer | Performance Hints card | `3 hints available` | None | Placeholder / future requirement | Current card is static. Requirements needed for hint count, hint text, severity, and destination behavior. |
+| Quick view drawer | Runtime Resource Distribution legend and donut | `donutSegments` | `nersc_ldms_dcgm_gpu_utilization`, `nersc_ldms_dcgm_dram_active`, synthetic CPU derivation | Derived field | CPU, GPU, memory, and idle shares are computed in UI; CPU is not sourced directly today. |
+| Quick view drawer | Node Hours Idle | `idleNodeHours` | `Charged Node Hours` + derived `idlePercent` | Derived field | Requires a trustworthy utilization basis to be meaningful. |
+| Quick view drawer | GPU Throughput: GPU Utilization | `performanceSummary.gpuUtilization` | `nersc_ldms_dcgm_gpu_utilization` | Derived aggregate | Currently averaged across metric rows for the job. |
+| Quick view drawer | GPU Throughput: Memory Utilization | `performanceSummary.memoryUtilization` | `nersc_ldms_dcgm_dram_active` | Derived aggregate | Current normalization is heuristic; metric definition should be confirmed. |
+| Quick view drawer | Footer CTA `View Performance Details` | Route param | `Job ID` | Required source field | Detail page dependency only needs job identifier from index page. |
+
+## Base Data Contract Needed For The Index Page
+
+The index page currently expects a per-job row model that can support both the grid and the quick-view drawer:
+
+| Logical field | Current payload / derivation | Needed for |
+| --- | --- | --- |
+| `jobId` | `Job ID` | Row key, routing, drawer state, compare selection, metrics join |
+| `jobName` | `Job Name` | Grid, drawer header |
+| `jobStatus` | `Job Status` | Grid chip, drawer chip |
+| `user` | `User` | Present in row model but not currently displayed on index page |
+| `projectId` | `Project` | Grid, drawer overview |
+| `partition` | `Partition` | Drawer overview, job name fallback |
+| `qos` | `QOS` | Grid, drawer overview |
+| `startTime` | `Start Time` | Grid, drawer overview, derived runtime/node count |
+| `endTime` | `End Time` | Grid, drawer overview, derived runtime/node count |
+| `hostname` | `Hostname` | Present in row model but not currently displayed on index page |
+| `nodeHours` | `Charged Node Hours` | Grid, drawer overview, idle node hours |
+| `nodeCount` | Currently derived | Grid, drawer overview |
+| `waitTime` | Currently placeholder | Grid, drawer overview |
+| `avgGpuUtilization` | Currently placeholder / should be aggregated from metrics | Grid, drawer, donut basis |
+| `gpuMemoryUtilization` | Derived from metrics | Grid, drawer |
+| `cpuUtilization` | Currently placeholder / synthetic | Grid, drawer, donut basis |
+| `energyConsumed` | Currently placeholder | Grid |
+
+## Recommended Backend / Data Requirements To Formalize
+
+| Priority | Data requirement | Why it should be formalized |
+| --- | --- | --- |
+| High | Canonical `job_status` | The UI currently falls back to demo statuses when absent. |
+| High | Actual `wait_time` | Currently not sourced at all and shown in both grid and drawer. |
+| High | Actual `cpu_utilization_avg` | Current CPU utilization is synthetic, which weakens performance guidance. |
+| High | Actual `gpu_utilization_avg` | Grid KPI is currently seeded from job id instead of real measurements. |
+| High | Actual `energy_consumed_joules` | Displayed as a key KPI but currently dummy data. |
+| Medium | Explicit `node_count` | Prevents approximation from runtime and charged node hours. |
+| Medium | Defined `gpu_memory_utilization_avg` metric | Current DRAM-based normalization is heuristic and should be validated. |
+| Medium | Performance hints payload | Drawer card is static today and needs content requirements. |
+| Low | Canonical runtime duration | Avoids recomputing from timestamps in the frontend. |
+
+## Current Gaps / Implementation Notes
+
+- `src/utils/job_metadata_helper.py` currently normalizes only job metadata fields needed for the basic row shell. It does **not** provide wait time, node count, energy, CPU utilization, or aggregated performance KPIs.
+- `src/pages/user-job-performance/index.tsx` fills several KPIs with demo logic:
+  - `waitTime` from `fallbackWaitTimes`
+  - `jobStatus` from `fallbackJobStatuses` when missing
+  - `avgGpuUtilization` from `generateDummyGpuUtil(jobId)`
+  - `energyConsumed` from `generateDummyEnergy(jobId)`
+  - `cpuUtilization` from a heuristic based on GPU utilization
+- The metrics payload currently supports at least:
+  - `nersc_ldms_dcgm_gpu_utilization`
+  - `nersc_ldms_dcgm_dram_active`
+  - `nersc_ldms_dcgm_power_usage`
+- If this page is moving from prototype to production-ready data requirements, the cleanest contract is:
+  - one job-summary dataset for grid rows
+  - one per-job metrics/telemetry dataset for trend or composition views
+
+## Job Performance Details Page: UI Data Requirements
+
+Source review:
+- Detail page implementation: `src/pages/user-job-performance/$id.tsx`
+- Metrics route variant: `src/pages/user-job-performance/performance.$id.tsx`
+- Current sample payloads: `public/data/user-job-performance/user-jobs.json`, `public/data/user-job-performance/metrics-data.json`
+
+This section maps the **Job Performance Details** page UI to the data needed to render each major feature area. It distinguishes between:
+- source-backed fields already available
+- values derived in the frontend from telemetry
+- placeholder/demo content that should become explicit backend requirements
+
+### Page Chrome And Navigation
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| Page chrome | Breadcrumb `For Users` / `Performance Overview` | Static labels | None | Static | No backend dependency. |
+| Page chrome | Breadcrumb current page `Details for Job {id}` | Route param + selected job metadata | `Job ID` | Required source field | Job id is the detail-page identifier. |
+| Page chrome | Page title `Performance for Job : {Job ID} ({Project})` | Selected job metadata | `Job ID`, `Project` | Required source field | Title currently uses project directly from metadata row. |
+| Page chrome | CTA `Compare with other Jobs` | Static route target | None | Static | No additional data requirement. |
+| Right sidebar nav | `On This Page` section list | Static section ids with scroll tracking | None | Static / derived behavior | No backend dependency; links are tied to UI sections. |
+
+### Job Details
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| Job details | Job identifier in header context | `data['Job ID']` | `Job ID` | Required source field | Used for route lookup and display. |
+| Job details | Project/account context | `data.Project` | `Project` | Required source field | Displayed in page title. |
+| Job details | Submit time | Hard-coded display today | Intended: `startTime` / submit timestamp | Missing / placeholder | UI currently shows static text; should come from canonical job submit/start timestamp. |
+| Job details | End time | Hard-coded display today | Intended: `endTime` | Missing / placeholder | UI currently shows static text; should come from canonical end timestamp. |
+| Job details | Duration | Hard-coded display today | Intended: derived from `Start Time`, `End Time` or explicit runtime | Missing / placeholder | Prefer canonical runtime field to avoid client recomputation. |
+| Job details | Queue | `data.QOS` | `QOS` | Required source field | Direct display. |
+| Job details | No. of Nodes | Hard-coded display today | Intended: `node_count` | Missing / placeholder | Should be explicit backend field; current UI shows demo value. |
+| Job details | Node Hours Charged | Hard-coded display today | Intended: `Charged Node Hours` | Missing / placeholder in detail page | Source exists in job metadata, but detail page is not yet wiring it through. |
+
+### Insights And Hints
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| Insights & hints | Insight card severity | Static `warning` / `info` | None | Placeholder / future requirement | Should become data-driven severity level. |
+| Insights & hints | Insight title | Static strings such as `Compute bound performance` | None | Placeholder / future requirement | Needs explicit recommendation title field. |
+| Insights & hints | Insight body text | Static recommendation copy | None | Placeholder / future requirement | Needs explainable recommendation text per job. |
+| Insights & hints | Insight destination link label | Static link text | None | Placeholder / future requirement | Should be configurable per insight. |
+| Insights & hints | Insight destination URL/route | `href="#"` placeholder | None | Placeholder / future requirement | Needs destination target or knowledge-base route. |
+| Insights & hints | Number/order of insights shown | Three fixed cards | None | Placeholder / future requirement | Should define max cards, ordering, and ranking logic. |
+
+### GPU Throughput Overview
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| GPU throughput | GPU Utilization progress bar | Static `39.88%` today | Intended: aggregate of `nersc_ldms_dcgm_gpu_utilization` | Missing / should be sourced | Should be authoritative average or percentile for the job. |
+| GPU throughput | GPU Utilization description | Static helper copy | None | Static | No data dependency unless copy becomes metric-definition driven. |
+| GPU throughput | Memory Utilization progress bar | Static `80.88%` today | Intended: aggregate of `nersc_ldms_dcgm_dram_active` or validated memory KPI | Missing / should be sourced | Current page does not compute this card from telemetry yet. |
+| GPU throughput | Memory Utilization description | Static helper copy | None | Static | No backend dependency. |
+| GPU throughput | CTA `See more GPU throughput metrics` | Placeholder link | None | Placeholder / future requirement | Needs route or destination definition if kept. |
+
+### Runtime Resource Distribution
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| Runtime resource distribution | Resource category labels | Static list `GPU`, `CPU`, `Network`, `Others` | None | Placeholder / future requirement | Categories are fixed in UI today. |
+| Runtime resource distribution | Share percentages in legend | Static values `35/20/25/45` | None | Placeholder / future requirement | Values are currently demo-only and should come from workload attribution logic. |
+| Runtime resource distribution | Donut chart segment values | Static `[35, 45, 20, 25]` | None | Placeholder / future requirement | Needs defined composition methodology and source fields. |
+| Runtime resource distribution | Learn-more CTA | Placeholder link | None | Placeholder / future requirement | Needs a valid destination if retained. |
+
+### GPU And CPU Utilization
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| GPU & CPU utilization | Aggregation selector | UI state: `mean` or `all` | None | Derived behavior | No backend dependency. |
+| GPU & CPU utilization | CPU summary chip | Average of generated CPU series | Synthetic from `nersc_ldms_dcgm_gpu_utilization` | Missing / should be sourced | Current CPU metric is heuristic, not authoritative telemetry. |
+| GPU & CPU utilization | GPU summary chip | Mean of job telemetry series | `nersc_ldms_dcgm_gpu_utilization` | Derived aggregate | Current average is computed from the time series. |
+| GPU & CPU utilization | Time-series x-axis | Relative time points | `Floored Relative Time` | Required source field | Used directly in the plot. |
+| GPU & CPU utilization | GPU utilization time series | `gpuSeries` | `nersc_ldms_dcgm_gpu_utilization` | Required source field | Primary source-backed series in this section. |
+| GPU & CPU utilization | CPU utilization time series | Derived `cpuSeries` | Synthetic from GPU utilization | Missing / should be sourced | Should become true CPU utilization telemetry. |
+| GPU & CPU utilization | Node-level utilization table | `displayedNodeRows` | Derived from CPU/GPU series | Derived / placeholder | Node rows are currently simulated from aggregate traces, not per-node telemetry. |
+| GPU & CPU utilization | Node identifiers and legend markers | Generated node ids `nid...` and symbols | None | Placeholder / future requirement | Needs real node-level telemetry keyed by node hostname/id. |
+
+### Memory Utilization
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| Memory utilization | Aggregation selector | UI state: `mean`, `min`, `max`, `all` | None | Derived behavior | No backend dependency. |
+| Memory utilization | CPU Memory summary chip | Mean of derived CPU memory series | Synthetic from derived GPU memory series | Missing / should be sourced | Should become true CPU memory utilization telemetry. |
+| Memory utilization | GPU Memory summary chip | Mean of normalized memory series | `nersc_ldms_dcgm_dram_active` | Derived aggregate | Current normalization is heuristic and should be validated. |
+| Memory utilization | Time-series x-axis | Relative time percent of run | `Floored Relative Time` | Derived field | Page currently normalizes runtime into 0-100% scale. |
+| Memory utilization | GPU memory time series | Normalized DRAM activity curve | `nersc_ldms_dcgm_dram_active` | Derived field | Requires confirmed mapping from DRAM active to utilization %. |
+| Memory utilization | CPU memory time series | Derived from GPU memory series | Synthetic | Missing / should be sourced | Not backed by real telemetry today. |
+| Memory utilization | Node-level memory table | `displayedMemoryNodeRows` | Derived from synthetic/derived series | Derived / placeholder | Per-node values are simulated and need node-granular source data. |
+
+### Power
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| Power | Aggregation selector | UI state: `mean`, `min`, `max` | None | Derived behavior | No backend dependency. |
+| Power | CPU power summary chip | Mean of generated CPU power series | None | Placeholder / should be sourced | Current power traces are random demo values. |
+| Power | GPU power summary chip | Mean of generated GPU power series | None | Placeholder / should be sourced | Could potentially map to `nersc_ldms_dcgm_power_usage` if formalized. |
+| Power | Memory power summary chip | Mean of generated memory power series | None | Placeholder / should be sourced | No current source field. |
+| Power | Node power summary chip | Mean of generated node power series | None | Placeholder / should be sourced | No current source field. |
+| Power | Power time series | `powerData` | None | Placeholder / should be sourced | Entire section is generated in frontend today. |
+| Power | Node-level power table | `displayedPowerNodeRows` | Derived from generated averages | Placeholder / future requirement | Needs per-node power telemetry and aggregation rules. |
+
+### PCIe Bandwidth
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| PCIe bandwidth | Aggregation selector | UI state: `mean`, `min`, `max`, `all` | None | Derived behavior | No backend dependency. |
+| PCIe bandwidth | Read summary chip | Mean of derived read series | Synthetic from GPU utilization | Missing / should be sourced | Should be based on actual PCIe read bandwidth telemetry. |
+| PCIe bandwidth | Write summary chip | Mean of derived write series | Synthetic from GPU utilization | Missing / should be sourced | Should be based on actual PCIe write bandwidth telemetry. |
+| PCIe bandwidth | Time-series x-axis | Relative time percent of run | `Floored Relative Time` | Derived field | Current chart normalizes runtime to percent. |
+| PCIe bandwidth | PCIe read time series | `readSeries` | Synthetic from `nersc_ldms_dcgm_gpu_utilization` | Missing / should be sourced | No true PCIe metric is read today. |
+| PCIe bandwidth | PCIe write time series | `writeSeries` | Synthetic from `nersc_ldms_dcgm_gpu_utilization` | Missing / should be sourced | No true PCIe metric is read today. |
+| PCIe bandwidth | Node-level PCIe table | `displayedPcieNodeRows` | Derived from synthetic read/write series | Derived / placeholder | Needs per-node PCIe metrics to be real. |
+
+### GPU And Inter-Node Network
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| GPU and inter-node network | Aggregation selector | UI state: `mean`, `min`, `max`, `all` | None | Derived behavior | No backend dependency. |
+| GPU and inter-node network | NVLink summary chip | Mean of derived nvlink series | Synthetic from `nersc_ldms_dcgm_gpu_utilization` | Missing / should be sourced | Should come from actual intra-node GPU interconnect telemetry. |
+| GPU and inter-node network | Slingshot summary chip | Mean of derived slingshot series | Synthetic from derived nvlink series | Missing / should be sourced | Should come from actual inter-node fabric telemetry. |
+| GPU and inter-node network | Time-series x-axis | Relative time percent of run | `Floored Relative Time` | Derived field | Current chart normalizes runtime to percent. |
+| GPU and inter-node network | NVLink time series | `nvlinkSeries` | Synthetic from `nersc_ldms_dcgm_gpu_utilization` | Missing / should be sourced | Currently illustrative only. |
+| GPU and inter-node network | Slingshot time series | `slingshotSeries` | Synthetic from derived NVLink series | Missing / should be sourced | Currently illustrative only. |
+| GPU and inter-node network | Node-level network table | `displayedNetworkNodeRows` | Derived from synthetic network series | Derived / placeholder | Needs node-level network counters from real telemetry. |
+
+### Roofline Analysis
+
+| Main feature | UI element / data displayed | UI field or computation | Current source field(s) | Requirement type | Notes / requirement gap |
+| --- | --- | --- | --- | --- | --- |
+| Roofline analysis | Roofline boundary line | Generated in `generateRooflineData()` | None | Placeholder / should be sourced | If intended to reflect system architecture, roofline constants should be data/config driven. |
+| Roofline analysis | Ridge point marker/label | Generated constants | None | Placeholder / should be sourced | Needs system-specific hardware limits. |
+| Roofline analysis | Kernel density scatter | Randomly generated sample bins | None | Placeholder / should be sourced | Needs real kernel-level profiling output. |
+| Roofline analysis | Kernels analyzed | Static `5233` | None | Placeholder / future requirement | Should come from profile/post-processing job output. |
+| Roofline analysis | Memory bound kernels | Static `93 (40%)` | None | Placeholder / future requirement | Needs computed counts and percentages. |
+| Roofline analysis | Compute bound kernels | Static `139 (60%)` | None | Placeholder / future requirement | Needs computed counts and percentages. |
+| Roofline analysis | Avg. Operational Intensity | Static `2.11710 FLOPs/Byte` | None | Placeholder / future requirement | Should come from profiling data. |
+| Roofline analysis | Avg. Performance | Static `5.50 TFlops` | None | Placeholder / future requirement | Should come from profiling data. |
+| Roofline analysis | Optimization recommendations | Static bullet lists | None | Placeholder / future requirement | Could become rule-based or model-generated recommendations with citations/explanations. |
+| Roofline analysis | Learn-more CTA | Placeholder link | None | Placeholder / future requirement | Needs destination if retained. |
+
+### Base Data Contract Needed For The Detail Page
+
+| Logical field | Current payload / derivation | Needed for |
+| --- | --- | --- |
+| `jobId` | `Job ID` | Route lookup, breadcrumb, page title, joins |
+| `projectId` | `Project` | Page title and job context |
+| `qos` | `QOS` | Job Details queue field |
+| `submitTime` | Not wired today | Job Details |
+| `endTime` | Not wired today | Job Details |
+| `runtimeSeconds` or `durationDisplay` | Not wired today / currently hard-coded | Job Details |
+| `nodeCount` | Not wired today / currently hard-coded | Job Details |
+| `chargedNodeHours` | Exists in metadata but hard-coded in page | Job Details |
+| `relativeTimeSeconds[]` | `Floored Relative Time` | All time-series charts |
+| `gpuUtilizationSeries[]` | `nersc_ldms_dcgm_gpu_utilization` | GPU throughput, utilization, and downstream derived sections |
+| `gpuMemoryActivitySeries[]` | `nersc_ldms_dcgm_dram_active` | Memory section and GPU memory KPIs |
+| `cpuUtilizationSeries[]` | Missing today | CPU utilization chart and KPIs |
+| `cpuMemoryUtilizationSeries[]` | Missing today | CPU memory chart and KPIs |
+| `gpuPowerSeries[]` | Missing or not yet mapped | Power section |
+| `cpuPowerSeries[]` | Missing today | Power section |
+| `memoryPowerSeries[]` | Missing today | Power section |
+| `nodePowerSeries[]` | Missing today | Power section |
+| `pcieReadSeries[]` | Missing today | PCIe chart and table |
+| `pcieWriteSeries[]` | Missing today | PCIe chart and table |
+| `nvlinkBandwidthSeries[]` | Missing today | Network chart and table |
+| `slingshotBandwidthSeries[]` | Missing today | Network chart and table |
+| `perNodeTelemetry[]` | Simulated today | All node-level tables and all-nodes chart modes |
+| `insights[]` | Static today | Insights & Hints cards |
+| `rooflineProfile` | Static/generated today | Roofline chart, counts, summaries, recommendations |
+
+### Recommended Detail-Page Requirements To Formalize Next
+
+| Priority | Data requirement | Why it should be formalized |
+| --- | --- | --- |
+| High | Canonical job timing fields: `submit_time`, `end_time`, `runtime_seconds` | The detail page job details block is still hard-coded. |
+| High | Explicit `node_count` and `charged_node_hours` | Core job facts should not be demo values on the detail page. |
+| High | True `cpu_utilization_series` and `cpu_utilization_avg` | CPU utilization is currently inferred from GPU behavior. |
+| High | True per-node telemetry keyed by node id/hostname | Node tables and all-node modes are currently simulated. |
+| High | Real power telemetry (`cpu/gpu/memory/node`) | The power section is entirely synthetic today. |
+| High | Real PCIe and network telemetry (`pcie_read`, `pcie_write`, `nvlink`, `slingshot`) | These sections currently derive illustrative values from unrelated metrics. |
+| Medium | Formal GPU memory utilization definition | Current DRAM-active normalization is heuristic. |
+| Medium | Structured `insights[]` payload | The hints section is static and should become job-specific. |
+| Medium | Structured `rooflineProfile` payload | Roofline chart and recommendations are currently generated demo content. |
+| Low | Link targets for learn-more CTAs | Several sections still point to `#` placeholders. |

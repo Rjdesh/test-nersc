@@ -56,7 +56,7 @@ import {
 import { useIrisGpuUtilization } from './-controllers/irisGpuUtilization.controller';
 import { cleanPath } from '../../utils/queryParams.utils';
 
-export const Route = createFileRoute('/user-job-performance/')({
+export const Route = createFileRoute('/user-job-performance-alphaver/')({
   component: UserJobPerformance,
 });
 
@@ -101,7 +101,7 @@ const formatFullDateTime = (value: string) => {
 };
 
 const TERTIARY_ACTION_COLOR = '#374151';
-const ACTIONS_COLUMN_WIDTH = 184;
+const ACTIONS_COLUMN_WIDTH = 152;
 const PANEL_WIDTH = 500;
 const ACTIONS_COLUMN_FIELD = 'actions';
 const DEFAULT_COLUMN_ORDER = [
@@ -112,8 +112,6 @@ const DEFAULT_COLUMN_ORDER = [
   'executionTime',
   'jobStatus',
   'nodeCount',
-  'avgGpuUtilization',
-  'cpuUtilization',
   'energyConsumed',
   'jobName',
   'projectId',
@@ -129,8 +127,6 @@ const DEFAULT_VISIBLE_COLUMN_FIELDS = new Set([
   'executionTime',
   'jobStatus',
   'nodeCount',
-  'avgGpuUtilization',
-  'cpuUtilization',
   'energyConsumed',
   ACTIONS_COLUMN_FIELD,
 ]);
@@ -357,38 +353,6 @@ function UtilizationBarCell({
         {utilization}%
       </Typography>
     </Box>
-  );
-}
-
-function MetricValueCell({
-  value,
-  status,
-}: {
-  value: number | null;
-  status?: MetricFetchStatus;
-}) {
-  if (status === 'loading') {
-    return (
-      <Typography variant="body2" sx={{ color: '#2563eb', fontWeight: 600 }}>
-        Loading
-      </Typography>
-    );
-  }
-
-  if (status === 'failed' || value === null || !Number.isFinite(Number(value))) {
-    return (
-      <Typography variant="body2" sx={{ color: '#6b7280' }}>
-        N/A
-      </Typography>
-    );
-  }
-
-  return (
-    <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-      {Number(value).toLocaleString(undefined, {
-        maximumFractionDigits: 1,
-      })}
-    </Typography>
   );
 }
 
@@ -1249,7 +1213,7 @@ function UserJobPerformance() {
     }
 
     navigate({
-      to: '/user-job-performance/performance/$id',
+      to: '/user-job-performance-alphaver/performance/$id',
       params: { id: selectedJobId },
     });
     closeActionsMenu();
@@ -1325,11 +1289,12 @@ function UserJobPerformance() {
     {
       field: 'jobId',
       headerName: 'Job ID',
-      width: 110,
+      minWidth: 112,
+      flex: 0.65,
       hideable: false,
       renderCell: (params: GridRenderCellParams) => (
         <RouterLink
-          to="/user-job-performance/$id"
+          to="/user-job-performance-alphaver/$id"
           params={{ id: String(params.row.jobId) }}
           style={{
             color: '#2563eb',
@@ -1346,12 +1311,14 @@ function UserJobPerformance() {
     {
       field: 'jobName',
       headerName: 'Job Name',
-      width: 150,
+      minWidth: 160,
+      flex: 1,
     },
     {
       field: 'submitTime',
       headerName: 'Submit time',
-      width: 176,
+      minWidth: 168,
+      flex: 1,
       renderCell: (params: GridRenderCellParams) => (
         <Tooltip title={formatFullDateTime(params.value as string)} arrow>
           <Typography variant="body2">{formatShortDateTime(params.value as string)}</Typography>
@@ -1361,39 +1328,46 @@ function UserJobPerformance() {
     {
       field: 'projectId',
       headerName: 'Project ID',
-      width: 82,
+      minWidth: 104,
+      flex: 0.6,
     },
     {
       field: 'qos',
       headerName: 'QOS',
-      width: 112,
+      minWidth: 96,
+      flex: 0.65,
     },
     {
       field: 'nodeHours',
       headerName: 'Node Hours',
-      width: 104,
+      minWidth: 112,
+      flex: 0.6,
       type: 'number',
     },
     {
       field: 'nodeCount',
       headerName: 'No. of Nodes',
-      width: 112,
+      minWidth: 112,
+      flex: 0.65,
       type: 'number',
     },
     {
       field: 'waitTime',
       headerName: 'Wait Time',
-      width: 96,
+      minWidth: 104,
+      flex: 0.6,
     },
     {
       field: 'executionTime',
       headerName: 'Run Time',
-      width: 96,
+      minWidth: 104,
+      flex: 0.6,
     },
     {
       field: 'jobStatus',
       headerName: 'Job Status',
-      width: 108,
+      minWidth: 116,
+      flex: 0.65,
       renderCell: (params: GridRenderCellParams) => {
         const status = String(params.value ?? '');
         const statusTone = getJobStatusTone(status);
@@ -1418,69 +1392,22 @@ function UserJobPerformance() {
       },
     },
     {
-      field: 'avgGpuUtilization',
-      headerName: 'GPU Utilization',
-      width: 128,
-      renderCell: (params: GridRenderCellParams) => (
-        <UtilizationBarCell
-          value={params.value === null ? null : Number(params.value)}
-          status={params.row.gpuUtilizationStatus}
-        />
-      ),
-    },
-    {
       field: 'gpuMemoryUtilization',
       headerName: 'GPU Memory',
-      width: 188,
+      minWidth: 168,
+      flex: 1,
       renderCell: (params: GridRenderCellParams) => (
         <UtilizationBarCell
           value={params.value === null ? null : Number(params.value)}
           status={params.row.gpuUtilizationStatus}
-        />
-      ),
-    },
-    {
-      field: 'cpuUtilization',
-      headerName: 'CPU Mem Footprint (kB)',
-      description: 'The total amount of Kernel memory, in kilobytes, that was in active use',
-      width: 172,
-      renderHeader: () => (
-        <Tooltip
-          title="The total amount of Kernel memory, in kilobytes, that was in active use"
-          arrow
-          placement="top"
-          enterDelay={250}
-        >
-          <Box
-            component="span"
-            title="The total amount of Kernel memory, in kilobytes, that was in active use"
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              width: '100%',
-              height: '100%',
-              cursor: 'help',
-              lineHeight: 1.15,
-              whiteSpace: 'normal',
-            }}
-          >
-          <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.15 }}>
-            CPU Mem Utilization (kB)
-          </Typography>
-          </Box>
-        </Tooltip>
-      ),
-      renderCell: (params: GridRenderCellParams) => (
-        <MetricValueCell
-          value={params.value === null ? null : Number(params.value)}
-          status={params.row.cpuUtilizationStatus}
         />
       ),
     },
     {
       field: 'energyConsumed',
       headerName: 'Energy Consumed (J)',
-      width: 136,
+      minWidth: 144,
+      flex: 0.8,
       renderCell: (params: GridRenderCellParams) => (
         <Typography variant="body2">{params.value}</Typography>
       ),
@@ -1488,7 +1415,8 @@ function UserJobPerformance() {
     {
       field: 'endTime',
       headerName: 'End time',
-      width: 176,
+      minWidth: 168,
+      flex: 1,
       renderCell: (params: GridRenderCellParams) => (
         <Tooltip title={formatFullDateTime(params.value as string)} arrow>
           <Typography variant="body2">{formatShortDateTime(params.value as string)}</Typography>
@@ -1518,7 +1446,7 @@ function UserJobPerformance() {
           }}
         >
           <RouterLink
-            to="/user-job-performance/$id"
+            to="/user-job-performance-alphaver/$id"
             params={{ id: String(params.row.id) }}
             onClick={(event) => {
               event.preventDefault();
@@ -1599,9 +1527,9 @@ function UserJobPerformance() {
         {/* Breadcrumb */}
         <Breadcrumbs sx={{ mb: 2 }}>
           <MuiLink underline="hover" color="primary" href="#">
-            For Users
+            Alpha ver.
           </MuiLink>
-          <Typography color="text.primary">Performance Metrics</Typography>
+          <Typography color="text.primary">User Job Performance Metrics</Typography>
         </Breadcrumbs>
 
         {/* Page Header */}
@@ -1615,7 +1543,7 @@ function UserJobPerformance() {
             variant="h4"
             sx={{ fontWeight: 700, color: '#1a1a1a', mb: 1 }}
           >
-            Your Jobs and Performance
+            Your Jobs and Performance - Alpha ver.
           </Typography>
 
           <Tooltip
@@ -1626,7 +1554,7 @@ function UserJobPerformance() {
             >
               <Button
                 variant={selectedJobCount > 0 ? 'contained' : 'outlined'}
-                onClick={() => navigate({ to: '/user-job-performance/compare' })}
+                onClick={() => navigate({ to: '/user-job-performance-alphaver/compare' })}
                 sx={{
                   textTransform: 'none',
                   fontWeight: 600,
@@ -1723,12 +1651,6 @@ function UserJobPerformance() {
                   },
                   '& .MuiDataGrid-cell--textRight, & .MuiDataGrid-cell--withRenderer': {
                     justifyContent: 'flex-start',
-                  },
-                  '& .MuiDataGrid-columnHeadersInner': {
-                    pr: `${ACTIONS_COLUMN_WIDTH}px`,
-                  },
-                  '& .MuiDataGrid-virtualScrollerRenderZone .MuiDataGrid-row': {
-                    pr: `${ACTIONS_COLUMN_WIDTH}px`,
                   },
                   '& .MuiDataGrid-row': {
                     cursor: 'pointer',
@@ -1966,7 +1888,7 @@ function UserJobPerformance() {
                     </Box>
                   </Box>
                   <RouterLink
-                    to="/user-job-performance/$id"
+                    to="/user-job-performance-alphaver/$id"
                     params={{ id: activeJob.id }}
                     style={{ textDecoration: 'none', flexShrink: 0 }}
                   >
@@ -2077,7 +1999,7 @@ function UserJobPerformance() {
               }}
             >
               <RouterLink
-                to="/user-job-performance/$id"
+                to="/user-job-performance-alphaver/$id"
                 params={{ id: activeJob.id }}
                 style={{ textDecoration: 'none' }}
               >

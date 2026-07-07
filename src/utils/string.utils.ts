@@ -58,6 +58,7 @@ export const getTopLevelRoutes = (flatRoutes: AnyRoute[]) => {
       (pathParts[0] === 'playground' ||
         pathParts[0] === 'center-performance' ||
         pathParts[0] === 'user-job-performance' ||
+        pathParts[0] === 'user-job-performance-alphaver' ||
         pathParts[0] === undefined) &&
       lastCharacter === '/'
     ) {

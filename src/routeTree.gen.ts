@@ -15,6 +15,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Route as rootRoute } from './pages/__root'
 import { Route as IndexImport } from './pages/index'
 import { Route as UserJobPerformanceIndexImport } from './pages/user-job-performance/index'
+import { Route as UserJobPerformanceAlphaverIndexImport } from './pages/user-job-performance-alphaver/index'
 import { Route as SearchDataRepositoriesIndexImport } from './pages/search-data-repositories/index'
 import { Route as PlaygroundIndexImport } from './pages/playground/index'
 import { Route as MonitorActivitiesIndexImport } from './pages/monitor-activities/index'
@@ -22,6 +23,8 @@ import { Route as ExploreDataIndexImport } from './pages/explore-data/index'
 import { Route as CenterPerformanceIndexImport } from './pages/center-performance/index'
 import { Route as UserJobPerformanceCompareImport } from './pages/user-job-performance/compare'
 import { Route as UserJobPerformanceIdImport } from './pages/user-job-performance/$id'
+import { Route as UserJobPerformanceAlphaverCompareImport } from './pages/user-job-performance-alphaver/compare'
+import { Route as UserJobPerformanceAlphaverIdImport } from './pages/user-job-performance-alphaver/$id'
 import { Route as SearchDataRepositoriesIdImport } from './pages/search-data-repositories/$id'
 import { Route as RunComputationLayoutImport } from './pages/run-computation/_layout'
 import { Route as MonitorActivitiesDetailImport } from './pages/monitor-activities/detail'
@@ -33,6 +36,7 @@ import { Route as RunComputationLayoutIndexImport } from './pages/run-computatio
 import { Route as ContributeDataLayoutIndexImport } from './pages/contribute-data/_layout/index'
 import { Route as CompareDataLayoutIndexImport } from './pages/compare-data/_layout/index'
 import { Route as UserJobPerformancePerformanceIdImport } from './pages/user-job-performance/performance.$id'
+import { Route as UserJobPerformanceAlphaverPerformanceIdImport } from './pages/user-job-performance-alphaver/performance.$id'
 import { Route as ContributeDataLayoutReviewImport } from './pages/contribute-data/_layout/review'
 import { Route as ContributeDataLayoutPortalImport } from './pages/contribute-data/_layout/portal'
 import { Route as ContributeDataLayoutNewImport } from './pages/contribute-data/_layout/new'
@@ -85,6 +89,13 @@ const UserJobPerformanceIndexRoute = UserJobPerformanceIndexImport.update({
   getParentRoute: () => rootRoute,
 } as any)
 
+const UserJobPerformanceAlphaverIndexRoute =
+  UserJobPerformanceAlphaverIndexImport.update({
+    id: '/user-job-performance-alphaver/',
+    path: '/user-job-performance-alphaver/',
+    getParentRoute: () => rootRoute,
+  } as any)
+
 const SearchDataRepositoriesIndexRoute =
   SearchDataRepositoriesIndexImport.update({
     id: '/search-data-repositories/',
@@ -127,6 +138,20 @@ const UserJobPerformanceIdRoute = UserJobPerformanceIdImport.update({
   path: '/user-job-performance/$id',
   getParentRoute: () => rootRoute,
 } as any)
+
+const UserJobPerformanceAlphaverCompareRoute =
+  UserJobPerformanceAlphaverCompareImport.update({
+    id: '/user-job-performance-alphaver/compare',
+    path: '/user-job-performance-alphaver/compare',
+    getParentRoute: () => rootRoute,
+  } as any)
+
+const UserJobPerformanceAlphaverIdRoute =
+  UserJobPerformanceAlphaverIdImport.update({
+    id: '/user-job-performance-alphaver/$id',
+    path: '/user-job-performance-alphaver/$id',
+    getParentRoute: () => rootRoute,
+  } as any)
 
 const SearchDataRepositoriesIdRoute = SearchDataRepositoriesIdImport.update({
   id: '/search-data-repositories/$id',
@@ -195,6 +220,13 @@ const UserJobPerformancePerformanceIdRoute =
   UserJobPerformancePerformanceIdImport.update({
     id: '/user-job-performance/performance/$id',
     path: '/user-job-performance/performance/$id',
+    getParentRoute: () => rootRoute,
+  } as any)
+
+const UserJobPerformanceAlphaverPerformanceIdRoute =
+  UserJobPerformanceAlphaverPerformanceIdImport.update({
+    id: '/user-job-performance-alphaver/performance/$id',
+    path: '/user-job-performance-alphaver/performance/$id',
     getParentRoute: () => rootRoute,
   } as any)
 
@@ -347,6 +379,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SearchDataRepositoriesIdImport
       parentRoute: typeof rootRoute
     }
+    '/user-job-performance-alphaver/$id': {
+      id: '/user-job-performance-alphaver/$id'
+      path: '/user-job-performance-alphaver/$id'
+      fullPath: '/user-job-performance-alphaver/$id'
+      preLoaderRoute: typeof UserJobPerformanceAlphaverIdImport
+      parentRoute: typeof rootRoute
+    }
+    '/user-job-performance-alphaver/compare': {
+      id: '/user-job-performance-alphaver/compare'
+      path: '/user-job-performance-alphaver/compare'
+      fullPath: '/user-job-performance-alphaver/compare'
+      preLoaderRoute: typeof UserJobPerformanceAlphaverCompareImport
+      parentRoute: typeof rootRoute
+    }
     '/user-job-performance/$id': {
       id: '/user-job-performance/$id'
       path: '/user-job-performance/$id'
@@ -396,6 +442,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SearchDataRepositoriesIndexImport
       parentRoute: typeof rootRoute
     }
+    '/user-job-performance-alphaver/': {
+      id: '/user-job-performance-alphaver/'
+      path: '/user-job-performance-alphaver'
+      fullPath: '/user-job-performance-alphaver'
+      preLoaderRoute: typeof UserJobPerformanceAlphaverIndexImport
+      parentRoute: typeof rootRoute
+    }
     '/user-job-performance/': {
       id: '/user-job-performance/'
       path: '/user-job-performance'
@@ -437,6 +490,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/contribute-data/review'
       preLoaderRoute: typeof ContributeDataLayoutReviewImport
       parentRoute: typeof ContributeDataLayoutImport
+    }
+    '/user-job-performance-alphaver/performance/$id': {
+      id: '/user-job-performance-alphaver/performance/$id'
+      path: '/user-job-performance-alphaver/performance/$id'
+      fullPath: '/user-job-performance-alphaver/performance/$id'
+      preLoaderRoute: typeof UserJobPerformanceAlphaverPerformanceIdImport
+      parentRoute: typeof rootRoute
     }
     '/user-job-performance/performance/$id': {
       id: '/user-job-performance/performance/$id'
@@ -642,6 +702,8 @@ export interface FileRoutesByFullPath {
   '/monitor-activities/detail': typeof MonitorActivitiesDetailRoute
   '/run-computation': typeof RunComputationLayoutRouteWithChildren
   '/search-data-repositories/$id': typeof SearchDataRepositoriesIdRoute
+  '/user-job-performance-alphaver/$id': typeof UserJobPerformanceAlphaverIdRoute
+  '/user-job-performance-alphaver/compare': typeof UserJobPerformanceAlphaverCompareRoute
   '/user-job-performance/$id': typeof UserJobPerformanceIdRoute
   '/user-job-performance/compare': typeof UserJobPerformanceCompareRoute
   '/center-performance': typeof CenterPerformanceIndexRoute
@@ -649,12 +711,14 @@ export interface FileRoutesByFullPath {
   '/monitor-activities': typeof MonitorActivitiesIndexRoute
   '/playground': typeof PlaygroundIndexRoute
   '/search-data-repositories': typeof SearchDataRepositoriesIndexRoute
+  '/user-job-performance-alphaver': typeof UserJobPerformanceAlphaverIndexRoute
   '/user-job-performance': typeof UserJobPerformanceIndexRoute
   '/compare-data/compare': typeof CompareDataLayoutCompareRoute
   '/compare-data/new': typeof CompareDataLayoutNewRoute
   '/contribute-data/new': typeof ContributeDataLayoutNewRoute
   '/contribute-data/portal': typeof ContributeDataLayoutPortalRoute
   '/contribute-data/review': typeof ContributeDataLayoutReviewRoute
+  '/user-job-performance-alphaver/performance/$id': typeof UserJobPerformanceAlphaverPerformanceIdRoute
   '/user-job-performance/performance/$id': typeof UserJobPerformancePerformanceIdRoute
   '/compare-data/': typeof CompareDataLayoutIndexRoute
   '/contribute-data/': typeof ContributeDataLayoutIndexRoute
@@ -675,6 +739,8 @@ export interface FileRoutesByTo {
   '/monitor-activities/detail': typeof MonitorActivitiesDetailRoute
   '/run-computation': typeof RunComputationLayoutIndexRoute
   '/search-data-repositories/$id': typeof SearchDataRepositoriesIdRoute
+  '/user-job-performance-alphaver/$id': typeof UserJobPerformanceAlphaverIdRoute
+  '/user-job-performance-alphaver/compare': typeof UserJobPerformanceAlphaverCompareRoute
   '/user-job-performance/$id': typeof UserJobPerformanceIdRoute
   '/user-job-performance/compare': typeof UserJobPerformanceCompareRoute
   '/center-performance': typeof CenterPerformanceIndexRoute
@@ -682,12 +748,14 @@ export interface FileRoutesByTo {
   '/monitor-activities': typeof MonitorActivitiesIndexRoute
   '/playground': typeof PlaygroundIndexRoute
   '/search-data-repositories': typeof SearchDataRepositoriesIndexRoute
+  '/user-job-performance-alphaver': typeof UserJobPerformanceAlphaverIndexRoute
   '/user-job-performance': typeof UserJobPerformanceIndexRoute
   '/compare-data/compare': typeof CompareDataLayoutCompareRoute
   '/compare-data/new': typeof CompareDataLayoutNewRoute
   '/contribute-data/new': typeof ContributeDataLayoutNewRoute
   '/contribute-data/portal': typeof ContributeDataLayoutPortalRoute
   '/contribute-data/review': typeof ContributeDataLayoutReviewRoute
+  '/user-job-performance-alphaver/performance/$id': typeof UserJobPerformanceAlphaverPerformanceIdRoute
   '/user-job-performance/performance/$id': typeof UserJobPerformancePerformanceIdRoute
   '/run-computation/$id': typeof RunComputationLayoutIdLayoutRouteWithChildren
   '/run-computation/$id/data-inputs': typeof RunComputationLayoutIdLayoutDataInputsRoute
@@ -709,6 +777,8 @@ export interface FileRoutesById {
   '/run-computation': typeof RunComputationRouteWithChildren
   '/run-computation/_layout': typeof RunComputationLayoutRouteWithChildren
   '/search-data-repositories/$id': typeof SearchDataRepositoriesIdRoute
+  '/user-job-performance-alphaver/$id': typeof UserJobPerformanceAlphaverIdRoute
+  '/user-job-performance-alphaver/compare': typeof UserJobPerformanceAlphaverCompareRoute
   '/user-job-performance/$id': typeof UserJobPerformanceIdRoute
   '/user-job-performance/compare': typeof UserJobPerformanceCompareRoute
   '/center-performance/': typeof CenterPerformanceIndexRoute
@@ -716,12 +786,14 @@ export interface FileRoutesById {
   '/monitor-activities/': typeof MonitorActivitiesIndexRoute
   '/playground/': typeof PlaygroundIndexRoute
   '/search-data-repositories/': typeof SearchDataRepositoriesIndexRoute
+  '/user-job-performance-alphaver/': typeof UserJobPerformanceAlphaverIndexRoute
   '/user-job-performance/': typeof UserJobPerformanceIndexRoute
   '/compare-data/_layout/compare': typeof CompareDataLayoutCompareRoute
   '/compare-data/_layout/new': typeof CompareDataLayoutNewRoute
   '/contribute-data/_layout/new': typeof ContributeDataLayoutNewRoute
   '/contribute-data/_layout/portal': typeof ContributeDataLayoutPortalRoute
   '/contribute-data/_layout/review': typeof ContributeDataLayoutReviewRoute
+  '/user-job-performance-alphaver/performance/$id': typeof UserJobPerformanceAlphaverPerformanceIdRoute
   '/user-job-performance/performance/$id': typeof UserJobPerformancePerformanceIdRoute
   '/compare-data/_layout/': typeof CompareDataLayoutIndexRoute
   '/contribute-data/_layout/': typeof ContributeDataLayoutIndexRoute
@@ -745,6 +817,8 @@ export interface FileRouteTypes {
     | '/monitor-activities/detail'
     | '/run-computation'
     | '/search-data-repositories/$id'
+    | '/user-job-performance-alphaver/$id'
+    | '/user-job-performance-alphaver/compare'
     | '/user-job-performance/$id'
     | '/user-job-performance/compare'
     | '/center-performance'
@@ -752,12 +826,14 @@ export interface FileRouteTypes {
     | '/monitor-activities'
     | '/playground'
     | '/search-data-repositories'
+    | '/user-job-performance-alphaver'
     | '/user-job-performance'
     | '/compare-data/compare'
     | '/compare-data/new'
     | '/contribute-data/new'
     | '/contribute-data/portal'
     | '/contribute-data/review'
+    | '/user-job-performance-alphaver/performance/$id'
     | '/user-job-performance/performance/$id'
     | '/compare-data/'
     | '/contribute-data/'
@@ -777,6 +853,8 @@ export interface FileRouteTypes {
     | '/monitor-activities/detail'
     | '/run-computation'
     | '/search-data-repositories/$id'
+    | '/user-job-performance-alphaver/$id'
+    | '/user-job-performance-alphaver/compare'
     | '/user-job-performance/$id'
     | '/user-job-performance/compare'
     | '/center-performance'
@@ -784,12 +862,14 @@ export interface FileRouteTypes {
     | '/monitor-activities'
     | '/playground'
     | '/search-data-repositories'
+    | '/user-job-performance-alphaver'
     | '/user-job-performance'
     | '/compare-data/compare'
     | '/compare-data/new'
     | '/contribute-data/new'
     | '/contribute-data/portal'
     | '/contribute-data/review'
+    | '/user-job-performance-alphaver/performance/$id'
     | '/user-job-performance/performance/$id'
     | '/run-computation/$id'
     | '/run-computation/$id/data-inputs'
@@ -809,6 +889,8 @@ export interface FileRouteTypes {
     | '/run-computation'
     | '/run-computation/_layout'
     | '/search-data-repositories/$id'
+    | '/user-job-performance-alphaver/$id'
+    | '/user-job-performance-alphaver/compare'
     | '/user-job-performance/$id'
     | '/user-job-performance/compare'
     | '/center-performance/'
@@ -816,12 +898,14 @@ export interface FileRouteTypes {
     | '/monitor-activities/'
     | '/playground/'
     | '/search-data-repositories/'
+    | '/user-job-performance-alphaver/'
     | '/user-job-performance/'
     | '/compare-data/_layout/compare'
     | '/compare-data/_layout/new'
     | '/contribute-data/_layout/new'
     | '/contribute-data/_layout/portal'
     | '/contribute-data/_layout/review'
+    | '/user-job-performance-alphaver/performance/$id'
     | '/user-job-performance/performance/$id'
     | '/compare-data/_layout/'
     | '/contribute-data/_layout/'
@@ -844,6 +928,8 @@ export interface RootRouteChildren {
   MonitorActivitiesDetailRoute: typeof MonitorActivitiesDetailRoute
   RunComputationRoute: typeof RunComputationRouteWithChildren
   SearchDataRepositoriesIdRoute: typeof SearchDataRepositoriesIdRoute
+  UserJobPerformanceAlphaverIdRoute: typeof UserJobPerformanceAlphaverIdRoute
+  UserJobPerformanceAlphaverCompareRoute: typeof UserJobPerformanceAlphaverCompareRoute
   UserJobPerformanceIdRoute: typeof UserJobPerformanceIdRoute
   UserJobPerformanceCompareRoute: typeof UserJobPerformanceCompareRoute
   CenterPerformanceIndexRoute: typeof CenterPerformanceIndexRoute
@@ -851,7 +937,9 @@ export interface RootRouteChildren {
   MonitorActivitiesIndexRoute: typeof MonitorActivitiesIndexRoute
   PlaygroundIndexRoute: typeof PlaygroundIndexRoute
   SearchDataRepositoriesIndexRoute: typeof SearchDataRepositoriesIndexRoute
+  UserJobPerformanceAlphaverIndexRoute: typeof UserJobPerformanceAlphaverIndexRoute
   UserJobPerformanceIndexRoute: typeof UserJobPerformanceIndexRoute
+  UserJobPerformanceAlphaverPerformanceIdRoute: typeof UserJobPerformanceAlphaverPerformanceIdRoute
   UserJobPerformancePerformanceIdRoute: typeof UserJobPerformancePerformanceIdRoute
 }
 
@@ -864,6 +952,9 @@ const rootRouteChildren: RootRouteChildren = {
   MonitorActivitiesDetailRoute: MonitorActivitiesDetailRoute,
   RunComputationRoute: RunComputationRouteWithChildren,
   SearchDataRepositoriesIdRoute: SearchDataRepositoriesIdRoute,
+  UserJobPerformanceAlphaverIdRoute: UserJobPerformanceAlphaverIdRoute,
+  UserJobPerformanceAlphaverCompareRoute:
+    UserJobPerformanceAlphaverCompareRoute,
   UserJobPerformanceIdRoute: UserJobPerformanceIdRoute,
   UserJobPerformanceCompareRoute: UserJobPerformanceCompareRoute,
   CenterPerformanceIndexRoute: CenterPerformanceIndexRoute,
@@ -871,7 +962,10 @@ const rootRouteChildren: RootRouteChildren = {
   MonitorActivitiesIndexRoute: MonitorActivitiesIndexRoute,
   PlaygroundIndexRoute: PlaygroundIndexRoute,
   SearchDataRepositoriesIndexRoute: SearchDataRepositoriesIndexRoute,
+  UserJobPerformanceAlphaverIndexRoute: UserJobPerformanceAlphaverIndexRoute,
   UserJobPerformanceIndexRoute: UserJobPerformanceIndexRoute,
+  UserJobPerformanceAlphaverPerformanceIdRoute:
+    UserJobPerformanceAlphaverPerformanceIdRoute,
   UserJobPerformancePerformanceIdRoute: UserJobPerformancePerformanceIdRoute,
 }
 
@@ -893,6 +987,8 @@ export const routeTree = rootRoute
         "/monitor-activities/detail",
         "/run-computation",
         "/search-data-repositories/$id",
+        "/user-job-performance-alphaver/$id",
+        "/user-job-performance-alphaver/compare",
         "/user-job-performance/$id",
         "/user-job-performance/compare",
         "/center-performance/",
@@ -900,7 +996,9 @@ export const routeTree = rootRoute
         "/monitor-activities/",
         "/playground/",
         "/search-data-repositories/",
+        "/user-job-performance-alphaver/",
         "/user-job-performance/",
+        "/user-job-performance-alphaver/performance/$id",
         "/user-job-performance/performance/$id"
       ]
     },
@@ -964,6 +1062,12 @@ export const routeTree = rootRoute
     "/search-data-repositories/$id": {
       "filePath": "search-data-repositories/$id.tsx"
     },
+    "/user-job-performance-alphaver/$id": {
+      "filePath": "user-job-performance-alphaver/$id.tsx"
+    },
+    "/user-job-performance-alphaver/compare": {
+      "filePath": "user-job-performance-alphaver/compare.tsx"
+    },
     "/user-job-performance/$id": {
       "filePath": "user-job-performance/$id.tsx"
     },
@@ -984,6 +1088,9 @@ export const routeTree = rootRoute
     },
     "/search-data-repositories/": {
       "filePath": "search-data-repositories/index.tsx"
+    },
+    "/user-job-performance-alphaver/": {
+      "filePath": "user-job-performance-alphaver/index.tsx"
     },
     "/user-job-performance/": {
       "filePath": "user-job-performance/index.tsx"
@@ -1007,6 +1114,9 @@ export const routeTree = rootRoute
     "/contribute-data/_layout/review": {
       "filePath": "contribute-data/_layout/review.tsx",
       "parent": "/contribute-data/_layout"
+    },
+    "/user-job-performance-alphaver/performance/$id": {
+      "filePath": "user-job-performance-alphaver/performance.$id.tsx"
     },
     "/user-job-performance/performance/$id": {
       "filePath": "user-job-performance/performance.$id.tsx"

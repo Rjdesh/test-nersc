@@ -1,7 +1,7 @@
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { AppBar, IconButton, Stack, Toolbar, Typography } from '@mui/material';
 import React from 'react';
-import { cleanPath } from '../utils/queryParams.utils';
+import nerscLogo from '../../images/NERSC_logo_no_spacing.svg';
 import { AppLink } from './AppLink';
 import { ImageWrapper } from './ImageWrapper';
 
@@ -31,16 +31,12 @@ export const TopBar: React.FC = () => {
         >
           <AppLink to="/">
             <ImageWrapper height={30}>
-              <img
-                src={cleanPath(
-                  `${import.meta.env.BASE_URL}/strudel-logo-icon.png`
-                )}
-              />
+              <img src={nerscLogo} alt="NERSC" />
             </ImageWrapper>
           </AppLink>
           <AppLink to="/">
             <Typography variant="h6" component="div" fontWeight="bold">
-              My Project
+              Performance Monitoring
             </Typography>
           </AppLink>
         </Stack>

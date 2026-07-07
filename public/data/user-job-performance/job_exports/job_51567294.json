@@ -1,0 +1,65 @@
+{
+  "job_id": "51567294",
+  "userid": "rjdesh",
+  "machine_id": "perlmutter gpu",
+  "metrics": [
+    "nersc_ldms_dcgm_gr_engine_active",
+    "nersc_ldms_dcgm_dram_active",
+    "nersc_ldms_dcgm_pcie_rx_bytes",
+    "nersc_ldms_dcgm_pcie_tx_bytes",
+    "nersc_ldms_dcgm_nvlink_rx_bytes",
+    "nersc_ldms_dcgm_nvlink_tx_bytes"
+  ],
+  "num_rows": 4,
+  "exported_at": "2026-05-07T22:47:39.063793",
+  "data": [
+    {
+      "index": 0,
+      "timestamp": "2026-04-14 22:08:50.331000",
+      "hostname": "nid001361",
+      "gpu_id": 0,
+      "nersc_ldms_dcgm_dram_active": 0.057309366800000004,
+      "nersc_ldms_dcgm_gr_engine_active": 0.1549667748,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 10123007,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 2033489
+    },
+    {
+      "index": 1,
+      "timestamp": "2026-04-14 22:08:50.331000",
+      "hostname": "nid001361",
+      "gpu_id": 1,
+      "nersc_ldms_dcgm_dram_active": 0.1214136531,
+      "nersc_ldms_dcgm_gr_engine_active": 0.2665270424,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 26479729,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 6067125
+    },
+    {
+      "index": 2,
+      "timestamp": "2026-04-14 22:08:50.331000",
+      "hostname": "nid001361",
+      "gpu_id": 2,
+      "nersc_ldms_dcgm_dram_active": 0.1182261005,
+      "nersc_ldms_dcgm_gr_engine_active": 0.7376914689,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 163245200,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 37392100
+    },
+    {
+      "index": 3,
+      "timestamp": "2026-04-14 22:08:50.332000",
+      "hostname": "nid001361",
+      "gpu_id": 3,
+      "nersc_ldms_dcgm_dram_active": 0.0,
+      "nersc_ldms_dcgm_gr_engine_active": 0.0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 67981,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 199201
+    }
+  ]
+}

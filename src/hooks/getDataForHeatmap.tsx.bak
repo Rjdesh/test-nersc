@@ -1,0 +1,460 @@
+
+$(document).ready(function () {
+  // constants
+  var XMAX = 24; // number of hours
+  var XMIN = 0;
+  var YMAX = 13; // number of node bins (in powers op 2)
+  var YMIN = 0;
+
+  // creating category names for x and y axis
+  var hour_categories = Array(XMAX).fill().map(function (_, i) {
+    return i.toString();
+  });
+  hour_categories[0] = "<1";
+  hour_categories.push(XMAX + "+");
+  var node_categories = Array(YMAX + 1).fill().map(function (_, i) {
+    return Math.pow(2, i) + " - " + (Math.pow(2, i + 1) - 1);
+  });
+  node_categories[0] = "1";
+  node_categories[node_categories.length - 1] = Math.pow(2, node_categories.length - 1) + "+";
+
+  // initialization
+  var currentRequest;
+  var curData;
+  var allCurWaitData; // unfiltered current wait data (not all of this will be displayed depending on axis changes)
+  var allCurJobData; // unfiltered current job data (not all of this will be displayed depending on axis changes)
+
+  // Date time picker
+  $("#startdate-form").datetimepicker({
+    defaultDate: moment().subtract(14, "d"),
+    format: "MMM D, YYYY (HH:mm)",
+    minDate: "2018/01/01",
+    showTodayButton: true
+    // sideBySide: true,
+  });
+
+  $("#enddate-form").datetimepicker({
+    defaultDate: moment(),
+    format: "MMM D, YYYY (HH:mm)",
+    useCurrent: false,
+    minDate: "2018/01/01",
+    showTodayButton: true
+    // sideBySide: true,
+  });
+
+  $("#startdate-form").on("dp.change", function (e) {
+    var start = $("#startdate-form").data("DateTimePicker").viewDate();
+    var end = $("#enddate-form").data("DateTimePicker").viewDate();
+    $("#enddate-form").data("DateTimePicker").minDate(e.date);
+    var difference = end.diff(start, "days");
+
+    // Limited to a max range of 31 days
+    if (difference > 31) {
+      var new_end = start.clone().add(31, "days");
+      $("#enddate-form").data("DateTimePicker").date(new_end);
+      alert("DateTime Range limited to 31 days - end date was adjusted accordingly.");
+    }
+    queryDB();
+  });
+  $("#enddate-form").on("dp.change", function (e) {
+    var start = $("#startdate-form").data("DateTimePicker").viewDate();
+    var end = $("#enddate-form").data("DateTimePicker").viewDate();
+    $("#startdate-form").data("DateTimePicker").maxDate(e.date);
+    var difference = end.diff(start, "days");
+
+    // Limited to a max range of 31 days
+    if (difference > 31) {
+      var new_start = end.clone().subtract(31, "days");
+      $("#startdate-form").data("DateTimePicker").date(new_start);
+      alert("DateTime Range limited to 31 days - start date was adjusted accordingly.");
+    }
+    queryDB();
+  });
+
+  // events
+  $(".selection").change(queryDB);
+
+  // Reset Button
+  $("#chart-button-0").on("click", function (e) {
+    var wait_heatmap = $("#chart-container-0").highcharts();
+    var job_heatmap = $("#chart-container-1").highcharts();
+
+    // Reset Axis and Slider to Default
+    wait_heatmap.update({
+      colorAxis: {
+        stops: [[0, "#73D216"], [0.25, "#EDD400"], [0.5, "#F57900"], [1, "#EF2929"]],
+        tickColor: "#000000",
+        min: 0,
+        tickInterval: 32,
+        max: 128,
+        reversed: false
+      }
+    });
+    job_heatmap.update({
+      colorAxis: {
+        stops: [[0, "#73D216"], [0.05, "#EDD400"], [0.25, "#F57900"], [1, "#EF2929"]],
+        // type: 'logarithmic',
+        tickColor: "#000000",
+        min: 0,
+        tickInterval: 2000,
+        max: 6000,
+        // max: 100,
+        reversed: false
+      }
+    });
+    wait_heatmap.series[0].update({
+      data: allCurWaitData
+    }, true);
+    job_heatmap.series[0].update({
+      data: allCurJobData
+    }, true);
+    $("#chart-slider-0").slider({
+      values: [0, 128]
+    });
+    $("#amount-0").val("0 - 128");
+
+    // very hacky fix to add a plus sign to last label
+    $("#chart-container-0 .highcharts-coloraxis-labels > text").last().text($("#chart-container-0 .highcharts-coloraxis-labels > text").last().text() + "+");
+    $("#chart-container-1 .highcharts-coloraxis-labels > text").last().text($("#chart-container-1 .highcharts-coloraxis-labels > text").last().text() + "+");
+  });
+  $("#chart-slider-0").slider({
+    orientation: "horizontal",
+    range: true,
+    min: 0,
+    max: 1000,
+    values: [0, 128],
+    slide: function slide(event, ui) {
+      $("#amount-0").val(ui.values[0] + " - " + ui.values[1]);
+      var new_start = ui.values[0];
+      var new_end = ui.values[1];
+      filterData(new_start, new_end);
+    }
+  });
+  $("#amount-0").val($("#chart-slider-0").slider("values", 0) + " - " + $("#chart-slider-0").slider("values", 1));
+  $("#amount-0").keypress(function (e) {
+    // check when enter key is pressed
+    if (e.which == 13) {
+      $(this).attr("disabled", "disabled");
+
+      // Update axis based on entered values
+      var text = $(this).val();
+      var data = text.replace(" ", "").split("-");
+      var wait_heatmap = $("#chart-container-0").highcharts();
+      var job_heatmap = $("#chart-container-1").highcharts();
+      if (data.length <= 1) {
+        $(this).val("invalid range format");
+      } else {
+        var left = parseInt(data[0]);
+        var right = parseInt(data[1]);
+        filterData(left, right);
+        $("#chart-slider-0").slider({
+          values: [left, right]
+        });
+      }
+      $(this).removeAttr("disabled");
+    }
+  });
+
+  // create plot/table on first page load
+  queryDB();
+  function filterData(new_start, new_end) {
+    var wait_heatmap = $("#chart-container-0").highcharts();
+    var job_heatmap = $("#chart-container-1").highcharts();
+    wait_heatmap.update({
+      colorAxis: {
+        tickInterval: (new_end - new_start) / 4,
+        min: new_start,
+        max: new_end,
+        endOnTick: false,
+        startOnTick: false
+      }
+    });
+    // let old_wait_data = allCurWaitData;
+    // let old_job_data = allCurJobData;
+    // let new_wait_data = [];
+    // let new_job_data = [];
+    // new_job_data_min = null;
+    // new_job_data_max = null;
+    // for (let i = 0; i < old_wait_data.length; i++) {
+    //     let cur_value = old_wait_data[i][2]
+    //     let cur_value_job = old_job_data[i][2]
+    //     if (cur_value <= new_end && cur_value >= new_start) {
+    //         new_wait_data.push(old_wait_data[i]);
+    //         new_job_data.push(old_job_data[i]);
+    //         if ((new_job_data_min == null) || (cur_value_job < new_job_data_min)) {
+    //             new_job_data_min = cur_value_job;
+    //         }
+    //         if ((new_job_data_max == null) || (cur_value_job > new_job_data_max)) {
+    //             new_job_data_max = cur_value_job;
+    //         }
+    //     }
+
+    // }
+
+    // wait_heatmap.series[0].update({
+    //     data: new_wait_data
+    // }, true);
+    // job_heatmap.series[0].update({
+    //     data: new_job_data
+    // }, true);
+  }
+
+  function cloneData(data) {
+    var newData = [];
+    for (var i = 0; i < data.length; i++) {
+      newData.push(Array.from(data[i]));
+    }
+    return newData;
+  }
+  function numFormat(value, digits) {
+    /* Returns 'value' with 'digits' number of decimal points max */
+    if (isNaN(value)) {
+      return value;
+    }
+    return Highcharts.numberFormat(value, digits, ".", ",");
+  }
+  function chartOptionsWait(data) {
+    /* Returns an object containing the options for the plot */
+    var opts = {
+      chart: {
+        type: "heatmap",
+        marginTop: 40,
+        marginBottom: 80
+      },
+      title: {
+        text: "Average Queue Wait Time"
+      },
+      xAxis: {
+        categories: hour_categories,
+        min: XMIN,
+        max: XMAX,
+        title: {
+          text: "Hours Requested"
+        },
+        gridLineWidth: 1
+      },
+      yAxis: {
+        categories: node_categories,
+        min: YMIN,
+        max: YMAX,
+        title: {
+          text: "Number of Nodes Requested"
+        }
+      },
+      colorAxis: {
+        stops: [[0, "#73D216"], [0.25, "#EDD400"], [0.5, "#F57900"], [1, "#EF2929"]],
+        tickColor: "#000000",
+        min: 0,
+        tickInterval: 32,
+        max: 128,
+        reversed: false
+      },
+      legend: {
+        align: "right",
+        layout: "vertical",
+        margin: 0,
+        verticalAlign: "top",
+        y: 25,
+        symbolHeight: 280
+      },
+      tooltip: {
+        formatter: function formatter() {
+          return "<b>Hours Requested: </b>" + this.series.xAxis.categories[this.point.x] + " hours <br>" + "<b>Nodes Requested: </b>" + Math.pow(2, this.point.y) + "-" + (Math.pow(2, this.point.y + 1) - 1) + " nodes <br>" + "<b>Average Wait Time: </b>" + numFormat(this.point.value, 2) + " hours";
+        }
+      },
+      credits: {
+        enabled: false
+      },
+      series: [{
+        borderColor: "#000000",
+        borderWidth: 0.5,
+        data: data
+      }]
+    };
+    return opts;
+  }
+  function chartOptionsJobs(data) {
+    /* Returns an object containing the options for the plot */
+    var opts = {
+      chart: {
+        type: "heatmap",
+        marginTop: 40,
+        marginBottom: 80
+      },
+      title: {
+        text: "Total Number of Jobs"
+      },
+      xAxis: {
+        categories: hour_categories,
+        min: XMIN,
+        max: XMAX,
+        title: {
+          text: "Hours Requested"
+        },
+        gridLineWidth: 1
+      },
+      yAxis: {
+        categories: node_categories,
+        min: YMIN,
+        max: YMAX,
+        title: {
+          text: "Number of Nodes Requested"
+        }
+      },
+      colorAxis: {
+        stops: [[0, "#73D216"], [0.05, "#EDD400"], [0.25, "#F57900"], [1, "#EF2929"]],
+        // type: 'logarithmic',
+        tickColor: "#000000",
+        min: 0,
+        max: 6000,
+        // max: 100,
+        reversed: false
+      },
+      legend: {
+        align: "right",
+        layout: "vertical",
+        margin: 0,
+        verticalAlign: "top",
+        y: 25,
+        symbolHeight: 280
+      },
+      tooltip: {
+        formatter: function formatter() {
+          return "<b>Hours Requested: </b>" + this.series.xAxis.categories[this.point.x] + " hours <br>" + "<b>Nodes Requested: </b>" + Math.pow(2, this.point.y) + "-" + (Math.pow(2, this.point.y + 1) - 1) + " nodes <br>" + "<b>Total Number of Jobs: </b>" + this.point.value + " jobs";
+        }
+      },
+      credits: {
+        enabled: false
+      },
+      series: [{
+        borderColor: "#000000",
+        borderWidth: 0.5,
+        data: data
+      }]
+    };
+    return opts;
+  }
+  function createChart(container, chartOptions) {
+    /* Creates a chart at container with chart options given */
+    Highcharts.chart(container, chartOptions);
+  }
+  function capitalize(string) {
+    if (!isNaN(string)) {
+      return string;
+    }
+    return string.charAt(0).toUpperCase() + string.slice(1);
+  }
+  function createTable(id, data, digits) {
+    /**
+     * Creates a table using the given 2d array at the id given
+     *
+     * String id: container id to append table to
+     *
+     * Object data:
+     *  attribute 'categories': denotes the table columns
+     *  attribute 'values': 2D array of values (list of rows) to be
+     *                      displayed in the table
+     */
+    var container = $(id);
+
+    // create table
+    var table = $("<table>").addClass("table").addClass("table-striped").addClass("table-condensed").addClass("table-bordered");
+
+    // append header row
+    var header = $("<tr>");
+    $.each(data.categories, function (i, category) {
+      header.append("<th>" + capitalize(category) + "</th>");
+    });
+    table.append(header);
+
+    // append other rows
+    $.each(data.values, function (i, row) {
+      var tr = $("<tr>");
+      $.each(row, function (j, value) {
+        // hacks
+        var formatted_value;
+        if (j == 0) {
+          formatted_value = "<b>" + capitalize(value) + "</b>";
+        } else if (value == "N/A") {
+          formatted_value = value;
+        } else if (data.categories[j] == "percent" || row[0] == "percent") {
+          if (value == 100) {
+            formatted_value = value + "%";
+          } else {
+            formatted_value = numFormat(capitalize(value), 2) + "%";
+          }
+        } else {
+          formatted_value = numFormat(capitalize(value), digits);
+        }
+        tr.append("<td>" + formatted_value + "</td>");
+      });
+      table.append(tr);
+    });
+
+    // append table
+    container.append(table);
+  }
+  function queryDB() {
+    /*  Gets the updated data based on the machine selected  */
+    // Get params
+    var machineArch = $("#machine-form").val().split("-");
+    var machine = machineArch[0];
+    var arch = machineArch[1];
+    var qos_val = $("#qos-form").val();
+    var start = $("#startdate-form").data("DateTimePicker").viewDate().unix();
+    var end = $("#enddate-form").data("DateTimePicker").viewDate().unix();
+
+    // Reset Slider Values
+    $("#chart-slider-0").slider({
+      values: [0, 128]
+    });
+    $("#amount-0").val("0 - 128");
+    if (currentRequest) {
+      currentRequest.abort();
+      $("#chart-container-0").html("");
+      $("#chart-container-1").html("");
+      $("#table-container-0").html("");
+      $("#table-container-1").html("");
+    }
+    $(".table-title").hide();
+    $("#myspinner").show();
+    var restBaseURL = "https://rest.nersc.gov/REST";
+    var baseURL = "".concat(restBaseURL, "/mynersc/queuewaittimes.php");
+    //var baseURL = 'https://portal.nersc.gov/project/nerscweb/nanxi/REST/mynersc/queuewaittimes.php';
+
+    currentRequest = $.ajax({
+      url: baseURL + "?machine=" + machine + "&arch=" + arch + "&start=" + start + "&end=" + end + "&qos=" + qos_val,
+      type: "GET",
+      async: true,
+      dataType: "json",
+      success: function success(data, textStatus, xhr) {
+        curData = data;
+        allCurWaitData = cloneData(data.wait);
+        allCurJobData = cloneData(data.jobs);
+
+        // calculate max:
+        var cur_max = 0;
+        for (var i = 0; i < allCurWaitData.length; i++) {
+          var cur_value = allCurWaitData[i][2];
+          if (cur_value > cur_max) {
+            cur_max = cur_value;
+          }
+        }
+        createChart("chart-container-0", chartOptionsWait(data.wait));
+        createChart("chart-container-1", chartOptionsJobs(data.jobs));
+        createTable("#table-container-0", data.wait_table, 2);
+        createTable("#table-container-1", data.jobs_table, 0);
+        $(".table-title").show();
+        $("#myspinner").hide();
+
+        // very hacky fix to add a plus sign to last label
+        $("#chart-container-0 .highcharts-coloraxis-labels > text").last().text($("#chart-container-0 .highcharts-coloraxis-labels > text").last().text() + "+");
+        $("#chart-container-1 .highcharts-coloraxis-labels > text").last().text($("#chart-container-1 .highcharts-coloraxis-labels > text").last().text() + "+");
+      },
+      error: function error(xhr, textStatus, errorThrown) {
+        $("#myspinner").hide();
+        $("#container").html("An error occured: " + textStatus + "<br>" + errorThrown);
+      }
+    });
+  }
+});

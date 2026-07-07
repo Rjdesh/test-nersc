@@ -1,0 +1,32 @@
+[
+  {
+    "index":0,
+    "memory_power":77,
+    "timestamp":1776204527000,
+    "hostname":"nid001361"
+  },
+  {
+    "index":1,
+    "memory_power":76,
+    "timestamp":1776204529000,
+    "hostname":"nid001361"
+  },
+  {
+    "index":2,
+    "memory_power":75,
+    "timestamp":1776204531000,
+    "hostname":"nid001361"
+  },
+  {
+    "index":3,
+    "memory_power":79,
+    "timestamp":1776204532000,
+    "hostname":"nid001361"
+  },
+  {
+    "index":4,
+    "memory_power":76,
+    "timestamp":1776204534000,
+    "hostname":"nid001361"
+  }
+]

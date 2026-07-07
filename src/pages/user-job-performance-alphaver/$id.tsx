@@ -52,7 +52,7 @@ import {
   type PerformanceSnapshot,
 } from './-controllers/recentJobPerformance.controller';
 
-export const Route = createFileRoute('/user-job-performance/$id')({
+export const Route = createFileRoute('/user-job-performance-alphaver/$id')({
   component: JobPerformanceDetailPage,
 });
 
@@ -1998,7 +1998,7 @@ function JobPerformanceDetailPage() {
         <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />}>
           <Link
             component={RouterLink}
-            to="/user-job-performance"
+            to="/user-job-performance-alphaver"
             underline="hover"
             color="primary"
           >
@@ -2006,7 +2006,7 @@ function JobPerformanceDetailPage() {
           </Link>
           <Link
             component={RouterLink}
-            to="/user-job-performance"
+            to="/user-job-performance-alphaver"
             underline="hover"
             color="primary"
           >
@@ -2030,7 +2030,7 @@ function JobPerformanceDetailPage() {
                 <Box sx={{ flex: 1 }} />
                 <Button
                   component={RouterLink}
-                  to="/user-job-performance/compare"
+                  to="/user-job-performance-alphaver/compare"
                   variant="outlined"
                   endIcon={<ArrowForwardIcon />}
                   size="medium"

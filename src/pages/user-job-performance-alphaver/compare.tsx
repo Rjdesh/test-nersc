@@ -41,7 +41,7 @@ import { SyntheticEvent, useEffect, useMemo, useState } from 'react';
 import Plot from 'react-plotly.js';
 import { useDataFromSource } from '../../hooks/useDataFromSource';
 
-export const Route = createFileRoute('/user-job-performance/compare')({
+export const Route = createFileRoute('/user-job-performance-alphaver/compare')({
   component: CompareJobsPage,
 });
 
@@ -533,7 +533,7 @@ function CompareJobsPage() {
         <Link component={RouterLink} to="/center-performance" underline="hover" color="primary">
           For Users
         </Link>
-        <Link component={RouterLink} to="/user-job-performance" underline="hover" color="primary">
+        <Link component={RouterLink} to="/user-job-performance-alphaver" underline="hover" color="primary">
           Your Job Performance
         </Link>
         <Typography color="text.primary">Compare More Metrics</Typography>

@@ -1,0 +1,113 @@
+{
+  "job_id": "51569945",
+  "userid": "rjdesh",
+  "machine_id": "perlmutter gpu",
+  "metrics": [
+    "nersc_ldms_dcgm_gr_engine_active",
+    "nersc_ldms_dcgm_dram_active",
+    "nersc_ldms_dcgm_pcie_rx_bytes",
+    "nersc_ldms_dcgm_pcie_tx_bytes",
+    "nersc_ldms_dcgm_nvlink_rx_bytes",
+    "nersc_ldms_dcgm_nvlink_tx_bytes"
+  ],
+  "num_rows": 8,
+  "exported_at": "2026-05-07T22:47:28.218894",
+  "data": [
+    {
+      "index": 0,
+      "timestamp": "2026-04-15 03:16:30.482000",
+      "hostname": "nid008628",
+      "gpu_id": 0,
+      "nersc_ldms_dcgm_dram_active": 0.0,
+      "nersc_ldms_dcgm_gr_engine_active": 0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 0
+    },
+    {
+      "index": 1,
+      "timestamp": "2026-04-15 03:16:30.482000",
+      "hostname": "nid008628",
+      "gpu_id": 1,
+      "nersc_ldms_dcgm_dram_active": 0.0,
+      "nersc_ldms_dcgm_gr_engine_active": 0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 64433,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 186778
+    },
+    {
+      "index": 2,
+      "timestamp": "2026-04-15 03:16:30.482000",
+      "hostname": "nid008628",
+      "gpu_id": 2,
+      "nersc_ldms_dcgm_dram_active": 0.0,
+      "nersc_ldms_dcgm_gr_engine_active": 0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 55071,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 184301
+    },
+    {
+      "index": 3,
+      "timestamp": "2026-04-15 03:16:30.482000",
+      "hostname": "nid008628",
+      "gpu_id": 3,
+      "nersc_ldms_dcgm_dram_active": 0.0,
+      "nersc_ldms_dcgm_gr_engine_active": 0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 0
+    },
+    {
+      "index": 4,
+      "timestamp": "2026-04-15 03:16:40.559000",
+      "hostname": "nid008628",
+      "gpu_id": 0,
+      "nersc_ldms_dcgm_dram_active": 0.0,
+      "nersc_ldms_dcgm_gr_engine_active": 0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 0
+    },
+    {
+      "index": 5,
+      "timestamp": "2026-04-15 03:16:40.559000",
+      "hostname": "nid008628",
+      "gpu_id": 1,
+      "nersc_ldms_dcgm_dram_active": 6e-16,
+      "nersc_ldms_dcgm_gr_engine_active": 0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 74137,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 217703
+    },
+    {
+      "index": 6,
+      "timestamp": "2026-04-15 03:16:40.559000",
+      "hostname": "nid008628",
+      "gpu_id": 2,
+      "nersc_ldms_dcgm_dram_active": 0.0,
+      "nersc_ldms_dcgm_gr_engine_active": 0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 136190,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 305693
+    },
+    {
+      "index": 7,
+      "timestamp": "2026-04-15 03:16:40.559000",
+      "hostname": "nid008628",
+      "gpu_id": 3,
+      "nersc_ldms_dcgm_dram_active": 0.0,
+      "nersc_ldms_dcgm_gr_engine_active": 0,
+      "nersc_ldms_dcgm_nvlink_rx_bytes": 0,
+      "nersc_ldms_dcgm_nvlink_tx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_rx_bytes": 0,
+      "nersc_ldms_dcgm_pcie_tx_bytes": 0
+    }
+  ]
+}
