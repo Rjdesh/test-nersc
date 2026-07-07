@@ -1,0 +1,32 @@
+[
+  {
+    "index":0,
+    "cpu_power":78,
+    "timestamp":1776204527422,
+    "hostname":"nid001361"
+  },
+  {
+    "index":1,
+    "cpu_power":74,
+    "timestamp":1776204529271,
+    "hostname":"nid001361"
+  },
+  {
+    "index":2,
+    "cpu_power":83,
+    "timestamp":1776204531071,
+    "hostname":"nid001361"
+  },
+  {
+    "index":3,
+    "cpu_power":111,
+    "timestamp":1776204532921,
+    "hostname":"nid001361"
+  },
+  {
+    "index":4,
+    "cpu_power":73,
+    "timestamp":1776204534733,
+    "hostname":"nid001361"
+  }
+]

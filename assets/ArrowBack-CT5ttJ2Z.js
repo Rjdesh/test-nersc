@@ -1,0 +1,1 @@
+import{F as u,G as i,H as c,J as n}from"./index-BVzeadvg.js";var r={},e;function s(){if(e)return r;e=1;var a=u();Object.defineProperty(r,"__esModule",{value:!0}),r.default=void 0;var t=a(i()),o=c();return r.default=(0,t.default)((0,o.jsx)("path",{d:"M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"}),"ArrowBack"),r}var f=s();const v=n(f);export{v as A};

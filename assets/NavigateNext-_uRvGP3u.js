@@ -1,0 +1,1 @@
+import{F as u,G as o,H as v,J as n}from"./index-BVzeadvg.js";var e={},t;function s(){if(t)return e;t=1;var a=u();Object.defineProperty(e,"__esModule",{value:!0}),e.default=void 0;var r=a(o()),i=v();return e.default=(0,r.default)((0,i.jsx)("path",{d:"M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"}),"NavigateNext"),e}var N=s();const f=n(N);export{f as N};
