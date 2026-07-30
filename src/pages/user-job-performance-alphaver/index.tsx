@@ -33,8 +33,6 @@ import {
   GridRenderCellParams,
   GridRowSelectionModel,
   GridToolbarContainer,
-  GridToolbarDensitySelector,
-  GridToolbarFilterButton,
   GridToolbarQuickFilter,
 } from '@mui/x-data-grid';
 import { useDataFromSource } from '../../hooks/useDataFromSource';

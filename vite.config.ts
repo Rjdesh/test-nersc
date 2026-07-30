@@ -287,7 +287,7 @@ const fetchJobMetricRecords = async (
     throw new Error(`LDMS did not return task_id for job ${jobId}.`);
   }
 
-  return await pollLdmsTask(accessToken, task.task_id);
+  return pollLdmsTask(accessToken, task.task_id);
 };
 
 const getSettledAverage = (
