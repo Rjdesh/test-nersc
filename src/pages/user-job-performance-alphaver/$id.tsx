@@ -161,7 +161,7 @@ type GpuMemoryDetailRow = {
 };
 
 const COLOR_TOKENS = {
-  pageBg: '#f3f4f6',
+  pageBg: '#ffffff',
   textPrimary: '#111827',
   textSecondary: '#4b5563',
   neutralTrack: '#d1d5db',
@@ -193,6 +193,9 @@ const ACTION_LINK_SX = {
   fontWeight: 500,
   textDecoration: 'none',
 };
+
+const SIDE_PANEL_LABEL_SX = { color: '#475569', fontWeight: 700 };
+const SIDE_PANEL_VALUE_SX = { color: '#111827', fontWeight: 500 };
 
 const METRIC_CHIP_BASE_SX = {
   display: 'flex',
@@ -1381,6 +1384,14 @@ function JobPerformanceDetailPage() {
     () => buildJobDetailItems(selectedJob, metadata),
     [metadata, selectedJob]
   );
+  const jobDetailColumns = useMemo(() => {
+    const midpoint = Math.ceil(jobDetailItems.length / 2);
+
+    return [
+      jobDetailItems.slice(0, midpoint),
+      jobDetailItems.slice(midpoint),
+    ];
+  }, [jobDetailItems]);
   const jobMetricsExport = useJobMetricsExport(id);
   const performanceSummary = useMemo(
     () => {
@@ -1983,39 +1994,45 @@ function JobPerformanceDetailPage() {
 
   return (
     <Box sx={{ bgcolor: COLOR_TOKENS.pageBg, minHeight: '100vh', pb: 4 }}>
-      {/* Breadcrumbs */}
       <Box
         sx={{
-          bgcolor: 'white',
-          borderBottom: '1px solid #e0e0e0',
+          width: '100%',
           px: 3,
-          py: 1.5,
-          position: 'sticky',
-          top: 0,
-          zIndex: 2,
+          py: 0.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          background: 'linear-gradient(90deg, #ffffff 0%, #55cff2 10%, #ffffff 100%)',
+          borderBottom: '1px solid #E8E8E8',
         }}
       >
-        <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />}>
-          <Link
-            component={RouterLink}
-            to="/user-job-performance-alphaver"
-            underline="hover"
-            color="primary"
-          >
-            For Users
-          </Link>
-          <Link
-            component={RouterLink}
-            to="/user-job-performance-alphaver"
-            underline="hover"
-            color="primary"
-          >
-            Performance Overview
-          </Link>
-          <Typography color="text.primary">
-            Details for Job {pageJobId}
-          </Typography>
-        </Breadcrumbs>
+        <Typography variant="subtitle2" sx={{ color: '#475569', fontWeight: 400 }}>
+          User's name
+        </Typography>
+        <Box
+          component="span"
+          sx={{
+            position: 'relative',
+            minHeight: 24,
+            display: 'inline-flex',
+            alignItems: 'center',
+            px: 0.5,
+            color: '#1B4684',
+            fontWeight: 400,
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              left: 4,
+              right: 4,
+              bottom: 0,
+              height: 3,
+              borderRadius: 999,
+              bgcolor: '#1B4684',
+            },
+          }}
+        >
+          Jobs
+        </Box>
       </Box>
 
       <Container maxWidth="xl" sx={{ mt: 3 }}>
@@ -2023,9 +2040,26 @@ function JobPerformanceDetailPage() {
         <Grid container spacing={3}>
           <Grid item xs={12} md={10}>
             <Box sx={{ mb: 3 }}>
+              <Breadcrumbs
+                separator={<NavigateNextIcon fontSize="small" />}
+                sx={{ mb: 1.5 }}
+                aria-label="breadcrumb"
+              >
+                <Link
+                  component={RouterLink}
+                  to="/user-job-performance-alphaver"
+                  underline="hover"
+                  sx={{ color: '#1B4684', fontWeight: 500 }}
+                >
+                  Jobs
+                </Link>
+                <Typography sx={{ color: COLOR_TOKENS.textPrimary, fontWeight: 500 }}>
+                  Job details
+                </Typography>
+              </Breadcrumbs>
               <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                 <Typography variant="h4" sx={{ ...TITLE_SX, mb: 2 }}>
-                Performance Details : {pageJobId} ({pageProject})
+                {pageJobId} ({pageProject})
               </Typography>
                 <Box sx={{ flex: 1 }} />
                 <Button
@@ -2061,32 +2095,57 @@ function JobPerformanceDetailPage() {
             {/* Job Details Table */}
             <Paper
               id="job-details"
+              elevation={0}
               sx={{ p: 2, mb: 3, scrollMarginTop: '80px' }}
             >
-              <Typography variant="h5" sx={{ ...SECTION_TITLE_SX, mb: 2 }}>
+              <Typography variant="h6" sx={{ ...SECTION_TITLE_SX, mb: 2 }}>
                 Job Details
               </Typography>
-              <Grid container spacing={2}>
-                {jobDetailItems.map((item) => (
-                  <Grid item xs={6} sm={4} md={2.4} key={item.label}>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      display="block"
-                    >
-                      {item.label}
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                      {item.value}
-                    </Typography>
+              <Grid container columnSpacing={{ xs: 1.5, md: 8 }} rowSpacing={1.5}>
+                {jobDetailColumns.map((column, columnIndex) => (
+                  <Grid item xs={12} md={6} key={`job-detail-column-${columnIndex}`}>
+                    <Stack spacing={1.25} divider={<Divider />}>
+                      {column.map((item) => (
+                        <Box
+                          key={item.label}
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: {
+                              xs: 'minmax(120px, max-content) minmax(0, 1fr)',
+                              sm: 'minmax(150px, max-content) minmax(0, 1fr)',
+                            },
+                            columnGap: 2,
+                            alignItems: 'flex-start',
+                          }}
+                        >
+                          <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>
+                            {item.label}
+                          </Typography>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              ...SIDE_PANEL_VALUE_SX,
+                              overflowWrap: 'anywhere',
+                            }}
+                          >
+                            {item.value}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Stack>
                   </Grid>
                 ))}
               </Grid>
             </Paper>
+            <Divider sx={{ mb: 3 }} />
 
             {/* Insights & Hints */}
-            <Paper id="insights" sx={{ p: 2, mb: 3, scrollMarginTop: '80px' }}>
-              <Typography variant="h5" sx={{ ...SECTION_TITLE_SX, mb: 2 }}>
+            <Paper
+              id="insights"
+              elevation={0}
+              sx={{ p: 2, mb: 3, scrollMarginTop: '80px' }}
+            >
+              <Typography variant="h6" sx={{ ...SECTION_TITLE_SX, mb: 2 }}>
                 Insights & Hints
               </Typography>
               <Grid container spacing={2}>
@@ -2188,12 +2247,14 @@ function JobPerformanceDetailPage() {
                 </Grid>
               </Grid>
             </Paper>
+            <Divider sx={{ mb: 3 }} />
 
             <Paper
               id="gpu-throughput"
+              elevation={0}
               sx={{ p: 4, mb: 3, scrollMarginTop: '80px' }}
             >
-              <Typography variant="h5" sx={{ ...SECTION_TITLE_SX, mb: 2.5 }}>
+              <Typography variant="h6" sx={{ ...SECTION_TITLE_SX, mb: 2.5 }}>
                 Performance summary
               </Typography>
               {performanceSummary && computePerformanceSnapshot && powerConsumptionSummary ? (
@@ -2228,10 +2289,12 @@ function JobPerformanceDetailPage() {
                 </Typography>
               )}
             </Paper>
+            <Divider sx={{ mb: 3 }} />
 
             {/* Resource Utilization */}
             <Paper
               id="resource-util"
+              elevation={0}
               sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
             >
               <Box
@@ -2245,7 +2308,7 @@ function JobPerformanceDetailPage() {
                     <KeyboardArrowRightIcon />
                   )}
                 </IconButton>
-                <Typography variant="h5" sx={SECTION_TITLE_SX}>
+                <Typography variant="h6" sx={SECTION_TITLE_SX}>
                   GPU & CPU Utilization
                 </Typography>
               </Box>
@@ -2416,11 +2479,13 @@ function JobPerformanceDetailPage() {
                 </Collapse>
               </Collapse>
             </Paper>
+            <Divider sx={{ mb: 3 }} />
 
 
             {/* Memory Utilization */}
             <Paper
               id="memory-util"
+              elevation={0}
               sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
             >
               <Box
@@ -2434,7 +2499,7 @@ function JobPerformanceDetailPage() {
                     <KeyboardArrowRightIcon />
                   )}
                 </IconButton>
-                <Typography variant="h5" sx={SECTION_TITLE_SX}>
+                <Typography variant="h6" sx={SECTION_TITLE_SX}>
                   GPU Memory Footprint
                 </Typography>
               </Box>
@@ -2609,10 +2674,15 @@ function JobPerformanceDetailPage() {
                 </Collapse>
               </Collapse>
             </Paper>
+            <Divider sx={{ mb: 3 }} />
             
 
             {/* Power */}
-            <Paper id="power" sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}>
+            <Paper
+              id="power"
+              elevation={0}
+              sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
+            >
               <Box
                 sx={{ ...SECTION_TOGGLE_SX, mb: expandPowerSection ? 2 : 0 }}
                 onClick={() => setExpandPowerSection(!expandPowerSection)}
@@ -2624,7 +2694,7 @@ function JobPerformanceDetailPage() {
                     <KeyboardArrowRightIcon />
                   )}
                 </IconButton>
-                <Typography variant="h5" sx={SECTION_TITLE_SX}>
+                <Typography variant="h6" sx={SECTION_TITLE_SX}>
                   Power
                 </Typography>
               </Box>
@@ -2821,10 +2891,12 @@ function JobPerformanceDetailPage() {
               </Collapse>
               </Collapse>
             </Paper>
+            <Divider sx={{ mb: 3 }} />
 
             {/* PCIe Bandwidth */}
             <Paper
               id="pcie-bandwidth"
+              elevation={0}
               sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
             >
               <Box
@@ -2838,7 +2910,7 @@ function JobPerformanceDetailPage() {
                     <KeyboardArrowRightIcon />
                   )}
                 </IconButton>
-                <Typography variant="h5" sx={SECTION_TITLE_SX}>
+                <Typography variant="h6" sx={SECTION_TITLE_SX}>
                   PCIe Bandwidth
                 </Typography>
               </Box>
@@ -3013,10 +3085,12 @@ function JobPerformanceDetailPage() {
               </Collapse>
               </Collapse>
             </Paper>
+            <Divider sx={{ mb: 3 }} />
 
             {/* GPU and Inter-Node Network */}
             <Paper
               id="gpu-inter-node-network"
+              elevation={0}
               sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
             >
               <Box
@@ -3030,7 +3104,7 @@ function JobPerformanceDetailPage() {
                     <KeyboardArrowRightIcon />
                   )}
                 </IconButton>
-                <Typography variant="h5" sx={SECTION_TITLE_SX}>
+                <Typography variant="h6" sx={SECTION_TITLE_SX}>
                   GPU and Inter-Node Network
                 </Typography>
               </Box>
@@ -3215,9 +3289,14 @@ function JobPerformanceDetailPage() {
               </Collapse>
               </Collapse>
             </Paper>
+            <Divider sx={{ mb: 3 }} />
 
             {/* Roofline Analysis */}
-            <Paper id="roofline" sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}>
+            <Paper
+              id="roofline"
+              elevation={0}
+              sx={{ p: 3, mb: 3, scrollMarginTop: '80px' }}
+            >
               <Box
                 sx={{ ...SECTION_TOGGLE_SX, mb: expandRooflineSection ? 2 : 0 }}
                 onClick={() => setExpandRooflineSection(!expandRooflineSection)}
@@ -3229,7 +3308,7 @@ function JobPerformanceDetailPage() {
                     <KeyboardArrowRightIcon />
                   )}
                 </IconButton>
-                <Typography variant="h5" sx={SECTION_TITLE_SX}>
+                <Typography variant="h6" sx={SECTION_TITLE_SX}>
                   Roofline Analysis
                 </Typography>
               </Box>

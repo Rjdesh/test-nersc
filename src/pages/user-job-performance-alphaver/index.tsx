@@ -7,18 +7,18 @@ import {
   Paper,
   Typography,
   Button,
-  Breadcrumbs,
   Checkbox,
-  Link as MuiLink,
   IconButton,
   Menu,
   MenuItem,
   Popover,
   Tooltip,
   FormControlLabel,
+  TextField,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CloseIcon from '@mui/icons-material/Close';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -50,7 +50,6 @@ import {
   LegacyUserJobData,
   MetricStats,
   MetricFetchStatus,
-  NetworkPerformanceSnapshot,
   PerformanceSnapshot,
 } from './-controllers/recentJobPerformance.controller';
 import { useIrisGpuUtilization } from './-controllers/irisGpuUtilization.controller';
@@ -80,6 +79,11 @@ const fullDateTimeFormatter = new Intl.DateTimeFormat('en-US', {
   timeZoneName: 'short',
 });
 
+const chartDayFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+});
+
 const formatShortDateTime = (value: string) => {
   const timestamp = parseJobTimestamp(value);
 
@@ -89,6 +93,14 @@ const formatShortDateTime = (value: string) => {
 
   return shortDateTimeFormatter.format(timestamp);
 };
+
+const getStartOfDay = (date: Date) => (
+  new Date(date.getFullYear(), date.getMonth(), date.getDate())
+);
+
+const formatDateKey = (date: Date) => (
+  `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+);
 
 const formatFullDateTime = (value: string) => {
   const timestamp = parseJobTimestamp(value);
@@ -100,9 +112,14 @@ const formatFullDateTime = (value: string) => {
   return fullDateTimeFormatter.format(timestamp);
 };
 
-const TERTIARY_ACTION_COLOR = '#374151';
+const PRIMARY_ACTION_COLOR = '#1B4684';
+const PRIMARY_ACTION_HOVER_BACKGROUND = 'rgba(27, 70, 132, 0.08)';
+const SECTION_BORDER_COLOR = '#E8E8E8';
+const TERTIARY_ACTION_COLOR = PRIMARY_ACTION_COLOR;
 const ACTIONS_COLUMN_WIDTH = 152;
 const PANEL_WIDTH = 500;
+const SIDE_PANEL_LABEL_SX = { color: '#475569', fontWeight: 700 };
+const SIDE_PANEL_VALUE_SX = { color: '#111827', fontWeight: 500 };
 const ACTIONS_COLUMN_FIELD = 'actions';
 const DEFAULT_COLUMN_ORDER = [
   'jobId',
@@ -118,6 +135,7 @@ const DEFAULT_COLUMN_ORDER = [
   'nodeHours',
   'gpuMemoryUtilization',
   'endTime',
+  'hostname',
   ACTIONS_COLUMN_FIELD,
 ];
 const DEFAULT_VISIBLE_COLUMN_FIELDS = new Set([
@@ -142,23 +160,11 @@ const DEFAULT_COLUMN_VISIBILITY_MODEL = DEFAULT_COLUMN_ORDER.reduce<GridColumnVi
 );
 const ORDER_LOCKED_COLUMN_FIELDS = new Set([ACTIONS_COLUMN_FIELD]);
 const PERFORMANCE_SNAPSHOT_ROWS = [
-  { key: 'gpuUtilization', label: 'GPU utilization', unit: '%' },
-  { key: 'cpuUtilization', label: 'CPU utilization', unit: '%' },
-  { key: 'gpuMemoryBandwidth', label: 'GPU Memory Bandwidth', unit: '%' },
-  { key: 'cpuMemoryBandwidth', label: 'CPU Memory Bandwidth', unit: '%' },
+  { key: 'gpuUtilization', label: 'Avg. GPU utilization', unit: '%' },
+  { key: 'cpuUtilization', label: 'Avg. CPU utilization', unit: '%' },
+  { key: 'gpuMemoryBandwidth', label: 'Avg. GPU Memory Bandwidth', unit: '%' },
+  { key: 'cpuMemoryBandwidth', label: 'Avg. CPU Memory Bandwidth', unit: '%' },
 ] as const;
-const NETWORK_PERFORMANCE_ROWS = [
-  { key: 'pcieThroughput', label: 'PCIe Throughput', unit: 'GB/s' },
-  { key: 'nvlinkThroughput', label: 'NVLink Throughput', unit: 'GB/s' },
-  { key: 'slingshotThroughput', label: 'Slingshot Throughput', unit: 'GB/s' },
-] as const;
-const POWER_CONSUMPTION_ROWS = [
-  { key: 'nodePower', label: 'Node Power', unit: 'W' },
-  { key: 'cpuPower', label: 'CPU Power', unit: 'W' },
-  { key: 'gpuPower', label: 'GPU Power', unit: 'W' },
-  { key: 'memoryPower', label: 'Memory Power', unit: 'W' },
-] as const;
-
 interface PowerMetricRow {
   [key: string]: number | string | null | undefined;
 }
@@ -300,7 +306,7 @@ function UtilizationBarCell({
 }) {
   if (status === 'loading') {
     return (
-      <Typography variant="body2" sx={{ color: '#2563eb', fontWeight: 600 }}>
+      <Typography variant="body2" sx={{ color: PRIMARY_ACTION_COLOR, fontWeight: 600 }}>
         Loading
       </Typography>
     );
@@ -461,14 +467,14 @@ function AverageMetricRow({
         py: 1,
       }}
     >
-      <Typography variant="body2" sx={{ color: '#475569', fontWeight: 600 }}>
+      <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>
         Avg. {label}
       </Typography>
       <Typography
         variant="body2"
         sx={{
+          ...SIDE_PANEL_VALUE_SX,
           color: value === null ? '#94a3b8' : '#111827',
-          fontWeight: 700,
           fontVariantNumeric: 'tabular-nums',
           whiteSpace: 'nowrap',
         }}
@@ -479,57 +485,7 @@ function AverageMetricRow({
   );
 }
 
-const getFiniteMetricStatsValues = (stats: MetricStats) => (
-  [stats.min, stats.max, stats.median]
-    .filter((value): value is number => (
-      typeof value === 'number' && Number.isFinite(value)
-    ))
-);
-
-const getMetricRangeDomain = (stats: MetricStats, unit: string): [number, number] => {
-  const values = getFiniteMetricStatsValues(stats);
-
-  if (!values.length) {
-    return [0, 1];
-  }
-
-  if (unit === '%') {
-    return [0, 100];
-  }
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-
-  if (min === max) {
-    const padding = Math.max(Math.abs(min) * 0.1, 1);
-
-    return [Math.max(0, min - padding), max + padding];
-  }
-
-  const padding = (max - min) * 0.08;
-
-  return [Math.max(0, min - padding), max + padding];
-};
-
-const getMetricRangePosition = (
-  value: number | null,
-  domain: [number, number]
-) => {
-  if (value === null || !Number.isFinite(value)) {
-    return 0;
-  }
-
-  const [domainMin, domainMax] = domain;
-  const domainRange = domainMax - domainMin;
-
-  if (domainRange <= 0) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(100, ((value - domainMin) / domainRange) * 100));
-};
-
-function ComputeMetricRangeRow({
+function ComputeMetricMedianRow({
   label,
   stats,
   unit,
@@ -538,273 +494,240 @@ function ComputeMetricRangeRow({
   stats: MetricStats;
   unit: string;
 }) {
-  const hasValues = getFiniteMetricStatsValues(stats).length > 0;
-  const domain = getMetricRangeDomain(stats, unit);
-  const minPosition = getMetricRangePosition(stats.min, domain);
-  const maxPosition = getMetricRangePosition(stats.max, domain);
-  const medianPosition = getMetricRangePosition(stats.median, domain);
-  const rangeLeft = Math.min(minPosition, maxPosition);
-  const rangeWidth = Math.abs(maxPosition - minPosition);
-  const medianValue = stats.median ?? stats.avg ?? 0;
-  const medianColor = getUtilizationBarColor(
-    unit === '%' ? Math.max(0, Math.min(100, medianValue)) : medianValue
-  );
-
   return (
-    <Box sx={{ py: 1.35 }}>
-      <Box
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 2,
+        py: 1,
+      }}
+    >
+      <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>
+        {label}
+      </Typography>
+      <Typography
+        variant="body2"
         sx={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: 2,
-          mb: 0.9,
+          ...SIDE_PANEL_VALUE_SX,
+          color: stats.median === null ? '#94a3b8' : '#111827',
+          fontVariantNumeric: 'tabular-nums',
+          whiteSpace: 'nowrap',
         }}
       >
-        <Typography variant="body2" sx={{ color: '#475569', fontWeight: 700 }}>
-          {label}
-        </Typography>
-        <Typography
-          variant="body2"
-          sx={{
-            color: stats.median === null ? '#94a3b8' : '#111827',
-            fontWeight: 700,
-            fontVariantNumeric: 'tabular-nums',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Median {formatSnapshotValue(stats.median, unit)}
-        </Typography>
-      </Box>
-
-      {hasValues ? (
-        <>
-          <Box
-            aria-label={`${label}: min ${formatSnapshotValue(
-              stats.min,
-              unit
-            )}, median ${formatSnapshotValue(stats.median, unit)}, max ${formatSnapshotValue(
-              stats.max,
-              unit
-            )}`}
-            role="img"
-            sx={{
-              position: 'relative',
-              height: 10,
-              bgcolor: '#e2e7ef',
-              borderRadius: 999,
-              overflow: 'hidden',
-            }}
-          >
-            <Box
-              sx={{
-                position: 'absolute',
-                left: `${rangeLeft}%`,
-                top: 0,
-                width: rangeWidth < 1 ? 6 : `${rangeWidth}%`,
-                height: '100%',
-                bgcolor: '#94a3b8',
-                borderRadius: 999,
-                transform: rangeWidth < 1 ? 'translateX(-50%)' : undefined,
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                left: `${medianPosition}%`,
-                top: 0,
-                width: 8,
-                height: '100%',
-                bgcolor: medianColor,
-                borderRadius: 999,
-                boxShadow: '0 0 0 1px rgba(255,255,255,0.95)',
-                transform: 'translateX(-50%)',
-              }}
-            />
-          </Box>
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-              gap: 1,
-              mt: 0.65,
-            }}
-          >
-            {[
-              { label: 'Min', value: stats.min, align: 'left' },
-              { label: 'Median', value: stats.median, align: 'center' },
-              { label: 'Max', value: stats.max, align: 'right' },
-            ].map((item) => (
-              <Typography
-                key={item.label}
-                variant="caption"
-                sx={{
-                  color: item.value === null ? '#94a3b8' : '#64748b',
-                  fontWeight: 700,
-                  fontVariantNumeric: 'tabular-nums',
-                  textAlign: item.align,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {item.label} {formatSnapshotValue(item.value, unit)}
-              </Typography>
-            ))}
-          </Box>
-        </>
-      ) : (
-        <Typography variant="body2" sx={{ color: '#94a3b8' }}>
-          N/A
-        </Typography>
-      )}
+        {formatSnapshotValue(stats.median, unit)}
+      </Typography>
     </Box>
   );
 }
 
 function ComputePerformanceCard({
   snapshot,
+  nodePower,
 }: {
   snapshot: PerformanceSnapshot;
+  nodePower: number | null;
 }) {
   return (
-    <Paper sx={{ p: 2.5, borderRadius: 3, mb: 2.5 }}>
+    <Paper
+      elevation={0}
+      sx={{
+        p: 2.5,
+        mb: 2.5,
+      }}
+    >
       <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827', mb: 1 }}>
-        Compute Performance
+        Performance Overview
       </Typography>
       <Divider sx={{ mb: 0.5 }} />
       <Stack divider={<Divider flexItem />} spacing={0}>
         {PERFORMANCE_SNAPSHOT_ROWS.map((row) => (
-          <ComputeMetricRangeRow
+          <ComputeMetricMedianRow
             key={row.key}
             label={row.label}
             stats={snapshot[row.key]}
             unit={row.unit}
           />
         ))}
+        <AverageMetricRow
+          label="Node Power"
+          value={nodePower}
+          unit="W"
+        />
       </Stack>
     </Paper>
   );
 }
 
-function PowerConsumptionCard({
-  powerConsumption,
-}: {
-  powerConsumption: PowerConsumptionSummary;
-}) {
-  return (
-    <Paper sx={{ p: 2.5, borderRadius: 3, mb: 2.5 }}>
-      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827', mb: 1 }}>
-        Power Consumption
-      </Typography>
-      <Divider sx={{ mb: 0.5 }} />
-      <Stack divider={<Divider flexItem />} spacing={0}>
-        {POWER_CONSUMPTION_ROWS.map((row) => (
-          <AverageMetricRow
-            key={row.key}
-            label={row.label}
-            value={powerConsumption[row.key]}
-            unit={row.unit}
-          />
-        ))}
-      </Stack>
-    </Paper>
-  );
+interface DailyJobCount {
+  key: string;
+  label: string;
+  perlmutterCpu: number;
+  perlmutterGpu: number;
 }
 
-function NetworkPerformanceCard({
-  networkPerformance,
-}: {
-  networkPerformance: NetworkPerformanceSnapshot;
-}) {
-  return (
-    <Paper sx={{ p: 2.5, borderRadius: 3 }}>
-      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827', mb: 1 }}>
-        Network Performance
-      </Typography>
-      <Divider sx={{ mb: 0.5 }} />
-      <Stack divider={<Divider flexItem />} spacing={0}>
-        {NETWORK_PERFORMANCE_ROWS.map((row) => {
-          const metric = networkPerformance[row.key];
+type HostnameCategory = 'perlmutterCpu' | 'perlmutterGpu';
 
-          return (
-            <Box
-              key={row.key}
-              sx={{
-                pt: 1.75,
-                pb: 1.25,
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 2,
-                }}
-              >
-                <Typography variant="body2" sx={{ color: '#111827', fontWeight: 700 }}>
-                  Total {row.label}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: metric.total === null ? '#94a3b8' : '#111827',
-                    fontWeight: 700,
-                    fontVariantNumeric: 'tabular-nums',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {formatSnapshotValue(metric.total, row.unit)}
-                </Typography>
-              </Box>
-              <Stack spacing={0.5} sx={{ mt: 1 }}>
-                {[
-                  { label: 'Avg. Upload (tx)', value: metric.avgUpload },
-                  { label: 'Avg. Download (rx)', value: metric.avgDownload },
-                ].map((subMetric) => (
-                  <Box
-                    key={subMetric.label}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 2,
-                      minHeight: 34,
-                      px: 1,
-                      py: 0.75,
-                    }}
-                  >
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        display: 'block',
-                        color: '#64748b',
-                        fontWeight: 700,
-                        lineHeight: 1.2,
-                        minWidth: 0,
-                      }}
-                    >
-                      {subMetric.label}
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        color: subMetric.value === null ? '#94a3b8' : '#111827',
-                        fontWeight: 700,
-                        fontSize: '0.78rem',
-                        fontVariantNumeric: 'tabular-nums',
-                        lineHeight: 1.35,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {formatSnapshotValue(subMetric.value, row.unit)}
-                    </Typography>
-                  </Box>
-                ))}
-              </Stack>
-            </Box>
-          );
-        })}
-      </Stack>
+const normalizeHostnameCategory = (hostname: string): HostnameCategory => (
+  hostname.toLowerCase().includes('cpu') ? 'perlmutterCpu' : 'perlmutterGpu'
+);
+
+const buildPastMonthJobCounts = (
+  jobs: Array<{ submitTime: string; hostname: string }>
+): DailyJobCount[] => {
+  const validSubmittedJobs = jobs
+    .map((job) => ({
+      ...job,
+      submitDate: parseJobTimestamp(job.submitTime),
+    }))
+    .filter((job) => !Number.isNaN(job.submitDate.getTime()));
+  const endDate = getStartOfDay(
+    validSubmittedJobs.length
+      ? new Date(Math.max(...validSubmittedJobs.map((job) => job.submitDate.getTime())))
+      : new Date()
+  );
+  const days = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(endDate);
+    date.setDate(endDate.getDate() - (29 - index));
+
+    return {
+      key: formatDateKey(date),
+      label: chartDayFormatter.format(date),
+      perlmutterCpu: 0,
+      perlmutterGpu: 0,
+    };
+  });
+  const countsByDay = new Map(days.map((day) => [day.key, {
+    perlmutterCpu: 0,
+    perlmutterGpu: 0,
+  }]));
+
+  validSubmittedJobs.forEach((job) => {
+    const key = formatDateKey(getStartOfDay(job.submitDate));
+    const dayCounts = countsByDay.get(key);
+
+    if (dayCounts) {
+      dayCounts[normalizeHostnameCategory(job.hostname)] += 1;
+    }
+  });
+
+  return days.map((day) => ({
+    ...day,
+    ...(countsByDay.get(day.key) ?? {
+      perlmutterCpu: 0,
+      perlmutterGpu: 0,
+    }),
+  }));
+};
+
+function JobsPastMonthBarChart({
+  data,
+}: {
+  data: DailyJobCount[];
+}) {
+  const totalJobs = data.reduce(
+    (total, day) => total + day.perlmutterCpu + day.perlmutterGpu,
+    0
+  );
+  const labels = data.map((day) => day.label);
+  const keys = data.map((day) => day.key);
+
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        p: 2,
+        mb: 2,
+        border: `1px solid ${SECTION_BORDER_COLOR}`,
+        borderRadius: 2,
+      }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: 2,
+          mb: 1.5,
+        }}
+      >
+        <Typography variant="subtitle1" sx={{ color: '#111827', fontWeight: 700 }}>
+          Jobs in the Past 30 Days
+        </Typography>
+        <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 600 }}>
+          {totalJobs} jobs
+        </Typography>
+      </Box>
+      <Plot
+        data={[
+          {
+            type: 'bar',
+            name: 'Perlmutter CPU',
+            x: labels,
+            y: data.map((day) => day.perlmutterCpu),
+            marker: {
+              color: '#55CFF2',
+              line: { color: '#259fbd', width: 1 },
+            },
+            customdata: keys,
+            hovertemplate: '%{x}<br>Perlmutter CPU: %{y} jobs<extra></extra>',
+          },
+          {
+            type: 'bar',
+            name: 'Perlmutter GPU',
+            x: labels,
+            y: data.map((day) => day.perlmutterGpu),
+            marker: {
+              color: '#0075BF',
+              line: { color: '#005f99', width: 1 },
+            },
+            customdata: keys,
+            hovertemplate: '%{x}<br>Perlmutter GPU: %{y} jobs<extra></extra>',
+          },
+        ]}
+        layout={{
+          autosize: true,
+          height: 260,
+          margin: { l: 42, r: 18, t: 16, b: 48 },
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor: 'rgba(0,0,0,0)',
+          barmode: 'stack',
+          bargap: 0.32,
+          xaxis: {
+            fixedrange: true,
+            tickfont: { color: '#64748b', size: 11 },
+            showgrid: false,
+            zeroline: false,
+          },
+          yaxis: {
+            fixedrange: true,
+            rangemode: 'tozero',
+            dtick: 1,
+            title: { text: 'Jobs', font: { color: '#64748b', size: 12 } },
+            tickfont: { color: '#64748b', size: 11 },
+            gridcolor: '#e2e8f0',
+            zerolinecolor: '#cbd5e1',
+          },
+          font: {
+            family: 'Inter, Roboto, Helvetica, Arial, sans-serif',
+          },
+          legend: {
+            orientation: 'h',
+            x: 0,
+            y: 1.16,
+            xanchor: 'left',
+            yanchor: 'top',
+            font: { color: '#475569', size: 12 },
+          },
+          showlegend: true,
+        }}
+        config={{
+          responsive: true,
+          displayModeBar: false,
+        }}
+        style={{ width: '100%' }}
+      />
     </Paper>
   );
 }
@@ -858,13 +781,13 @@ function ColumnSettingsButton({
   return (
     <>
       <Button
-        size="small"
+        size="medium"
         startIcon={<ViewColumnIcon />}
         aria-haspopup="dialog"
         aria-expanded={open ? 'true' : undefined}
         onClick={openColumnSettings}
       >
-        Columns
+        Customize Columns
       </Button>
       <Popover
         open={open}
@@ -1008,6 +931,9 @@ function JobTableToolbar({
   setPanelAnchorEl,
   columns,
   columnVisibilityModel,
+  maxSelectionTooltipOpen,
+  selectedJobCount,
+  onCompareJobMetrics,
   onColumnVisibilityModelChange,
   onMoveColumn,
   onResetColumnSettings,
@@ -1015,6 +941,9 @@ function JobTableToolbar({
   setPanelAnchorEl: (element: HTMLDivElement | null) => void;
   columns: GridColDef[];
   columnVisibilityModel: GridColumnVisibilityModel;
+  maxSelectionTooltipOpen: boolean;
+  selectedJobCount: number;
+  onCompareJobMetrics: () => void;
   onColumnVisibilityModelChange: (model: GridColumnVisibilityModel) => void;
   onMoveColumn: (field: string, direction: -1 | 1) => void;
   onResetColumnSettings: () => void;
@@ -1083,9 +1012,6 @@ function JobTableToolbar({
           flexWrap: 'wrap',
           '& .MuiButton-root': {
             minWidth: 'auto',
-            px: 1,
-            py: 0.5,
-            fontSize: '0.75rem',
             fontWeight: 500,
             textTransform: 'none',
             color: TERTIARY_ACTION_COLOR,
@@ -1094,11 +1020,43 @@ function JobTableToolbar({
             mr: 0.5,
           },
           '& .MuiSvgIcon-root': {
-            fontSize: 18,
+            fontSize: 20,
             color: TERTIARY_ACTION_COLOR,
           },
         }}
       >
+        <Tooltip
+          open={maxSelectionTooltipOpen}
+          title="Max 5 jobs can be compared"
+          placement="top"
+          arrow
+        >
+          <Button
+            size="medium"
+            variant={selectedJobCount > 0 ? 'contained' : 'outlined'}
+            startIcon={<CompareArrowsIcon />}
+            onClick={onCompareJobMetrics}
+            sx={{
+              mr: 1.25,
+              borderColor: PRIMARY_ACTION_COLOR,
+              color: selectedJobCount > 0 ? '#ffffff !important' : `${PRIMARY_ACTION_COLOR} !important`,
+              bgcolor: selectedJobCount > 0 ? PRIMARY_ACTION_COLOR : 'transparent',
+              '& .MuiButton-startIcon .MuiSvgIcon-root': {
+                color: selectedJobCount > 0 ? '#ffffff' : PRIMARY_ACTION_COLOR,
+              },
+              '&:hover': {
+                borderColor: PRIMARY_ACTION_COLOR,
+                bgcolor: selectedJobCount > 0 ? PRIMARY_ACTION_COLOR : PRIMARY_ACTION_HOVER_BACKGROUND,
+                color: selectedJobCount > 0 ? '#ffffff !important' : `${PRIMARY_ACTION_COLOR} !important`,
+                '& .MuiButton-startIcon .MuiSvgIcon-root': {
+                  color: selectedJobCount > 0 ? '#ffffff' : PRIMARY_ACTION_COLOR,
+                },
+              },
+            }}
+          >
+            Compare Jobs
+          </Button>
+        </Tooltip>
         <ColumnSettingsButton
           columns={columns}
           columnVisibilityModel={columnVisibilityModel}
@@ -1106,8 +1064,6 @@ function JobTableToolbar({
           onMoveColumn={onMoveColumn}
           onResetColumnSettings={onResetColumnSettings}
         />
-        <GridToolbarFilterButton />
-        <GridToolbarDensitySelector />
       </Box>
     </GridToolbarContainer>
   );
@@ -1127,6 +1083,10 @@ function UserJobPerformance() {
   const [columnVisibilityModel, setColumnVisibilityModel] =
     useState<GridColumnVisibilityModel>(() => ({ ...DEFAULT_COLUMN_VISIBILITY_MODEL }));
   const [columnOrder, setColumnOrder] = useState<string[]>(() => [...DEFAULT_COLUMN_ORDER]);
+  const [selectedUserFilter, setSelectedUserFilter] = useState('');
+  const [selectedJobsFilter, setSelectedJobsFilter] = useState('');
+  const [appliedUserFilter, setAppliedUserFilter] = useState('');
+  const [appliedJobsFilter, setAppliedJobsFilter] = useState('');
 
   const userJobsData = useDataFromSource(
     'data/user-job-performance/user-jobs.json'
@@ -1229,6 +1189,33 @@ function UserJobPerformance() {
     }),
     [irisGpuUtilizationByJob, irisGpuUtilizationStatus, irisJobsData, metricsByJob, userJobsData]
   );
+  const displayedJobData = useMemo(() => {
+    const normalizedUserFilter = appliedUserFilter.trim().toLowerCase();
+    const requestedJobIds = appliedJobsFilter
+      .split(',')
+      .map((jobId) => jobId.trim().toLowerCase())
+      .filter(Boolean);
+    const requestedJobIdLookup = new Set(requestedJobIds);
+    const userFilteredJobs = normalizedUserFilter === ''
+      ? jobData
+      : jobData.filter((job) => job.user.toLowerCase().includes(normalizedUserFilter));
+
+    if (!requestedJobIdLookup.size) {
+      return userFilteredJobs;
+    }
+
+    return userFilteredJobs.filter((job) => requestedJobIdLookup.has(job.jobId.toLowerCase()));
+  }, [appliedJobsFilter, appliedUserFilter, jobData]);
+  const pastMonthJobCounts = useMemo(
+    () => buildPastMonthJobCounts(displayedJobData),
+    [displayedJobData]
+  );
+  const loadSelectedJobs = () => {
+    setAppliedUserFilter(selectedUserFilter);
+    setAppliedJobsFilter(selectedJobsFilter);
+    setRowSelectionModel([]);
+    setActiveDrawerJobId(null);
+  };
   const activeJob = jobData.find((job) => job.id === activeDrawerJobId) ?? null;
   const selectedJobCount = rowSelectionModel.length;
   const activeJobMetricsByJob = activeJob?.gpuUtilizationStatus
@@ -1261,29 +1248,6 @@ function UserJobPerformance() {
       memoryPowerRows,
     })
     : null;
-  const donutSegments = performanceSummary ? (() => {
-    const activeShare = 100 - performanceSummary.idlePercent;
-    const basis = [
-      { label: 'GPU', value: performanceSummary.gpuUtilization, color: '#10b981' },
-      { label: 'CPU', value: performanceSummary.cpuUtilization, color: '#3b82f6' },
-      { label: 'Memory', value: performanceSummary.memoryUtilization, color: '#f59e0b' },
-    ];
-    const totalBasis = basis.reduce((sum, item) => sum + item.value, 0) || 1;
-
-    return [
-      ...basis.map((item) => ({
-        ...item,
-        share: Number(((activeShare * item.value) / totalBasis).toFixed(1)),
-      })),
-      {
-        label: 'Others',
-        value: performanceSummary.idlePercent,
-        share: Number(performanceSummary.idlePercent.toFixed(1)),
-        color: '#94a3b8',
-      },
-    ];
-  })() : [];
-
   // Table columns definition
   const columns = useMemo<GridColDef[]>(() => [
     {
@@ -1297,7 +1261,7 @@ function UserJobPerformance() {
           to="/user-job-performance-alphaver/$id"
           params={{ id: String(params.row.jobId) }}
           style={{
-            color: '#2563eb',
+            color: PRIMARY_ACTION_COLOR,
             fontWeight: 500,
             textAlign: 'left',
             cursor: 'pointer',
@@ -1343,6 +1307,8 @@ function UserJobPerformance() {
       minWidth: 112,
       flex: 0.6,
       type: 'number',
+      headerAlign: 'left',
+      align: 'left',
     },
     {
       field: 'nodeCount',
@@ -1350,6 +1316,8 @@ function UserJobPerformance() {
       minWidth: 112,
       flex: 0.65,
       type: 'number',
+      headerAlign: 'left',
+      align: 'left',
     },
     {
       field: 'waitTime',
@@ -1424,6 +1392,12 @@ function UserJobPerformance() {
       ),
     },
     {
+      field: 'hostname',
+      headerName: 'Hostname',
+      minWidth: 150,
+      flex: 0.8,
+    },
+    {
       field: ACTIONS_COLUMN_FIELD,
       headerName: 'Actions',
       width: ACTIONS_COLUMN_WIDTH,
@@ -1456,7 +1430,7 @@ function UserJobPerformance() {
             style={{
               fontSize: '0.875rem',
               textDecoration: 'none',
-              color: '#2563eb',
+              color: PRIMARY_ACTION_COLOR,
             }}
           >
             Quick View
@@ -1500,6 +1474,9 @@ function UserJobPerformance() {
         setPanelAnchorEl={handlePanelAnchorElChange}
         columns={orderedColumns}
         columnVisibilityModel={columnVisibilityModel}
+        maxSelectionTooltipOpen={maxSelectionTooltipOpen}
+        selectedJobCount={selectedJobCount}
+        onCompareJobMetrics={() => navigate({ to: '/user-job-performance-alphaver/compare' })}
         onColumnVisibilityModelChange={setColumnVisibilityModel}
         onMoveColumn={moveColumn}
         onResetColumnSettings={resetColumnSettings}
@@ -1509,81 +1486,138 @@ function UserJobPerformance() {
       columnVisibilityModel,
       handlePanelAnchorElChange,
       moveColumn,
+      navigate,
       orderedColumns,
       resetColumnSettings,
+      maxSelectionTooltipOpen,
+      selectedJobCount,
     ]
   );
 
   return (
     <FilterContext>
-      <Box
-        sx={{
-          width: '80%',
-          maxWidth: '1800px',
-          margin: '0 auto',
-          padding: 3,
-        }}
-      >
-        {/* Breadcrumb */}
-        <Breadcrumbs sx={{ mb: 2 }}>
-          <MuiLink underline="hover" color="primary" href="#">
-            Alpha ver.
-          </MuiLink>
-          <Typography color="text.primary">User Job Performance Metrics</Typography>
-        </Breadcrumbs>
-
-        {/* Page Header */}
-        <Box sx={{ 
-          mb: 2,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}>
-          <Typography
-            variant="h4"
-            sx={{ fontWeight: 700, color: '#1a1a1a', mb: 1 }}
-          >
-            Your Jobs and Performance - Alpha ver.
+      <Box sx={{ minHeight: '100vh', bgcolor: '#ffffff' }}>
+        <Box
+          sx={{
+            width: '100%',
+            px: 3,
+            py: 0.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            background: 'linear-gradient(90deg, #ffffff 0%, #55cff2 10%, #ffffff 100%)',
+          borderBottom: `1px solid ${SECTION_BORDER_COLOR}`,
+          }}
+        >
+          <Typography variant="subtitle2" sx={{ color: '#475569', fontWeight: 400 }}>
+            User's name
           </Typography>
-
-          <Tooltip
-              open={maxSelectionTooltipOpen}
-              title="Max 5 jobs can be compared"
-              placement="top"
-              arrow
-            >
-              <Button
-                variant={selectedJobCount > 0 ? 'contained' : 'outlined'}
-                onClick={() => navigate({ to: '/user-job-performance-alphaver/compare' })}
-                sx={{
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  borderColor: '#1a2f5a',
-                  color: selectedJobCount > 0 ? '#ffffff' : '#1a2f5a',
-                  bgcolor: selectedJobCount > 0 ? '#1a2f5a' : 'transparent',
-                  '&:hover': {
-                    borderColor: '#1a2f5a',
-                    bgcolor: selectedJobCount > 0 ? '#0f1f42' : 'rgba(26, 47, 90, 0.08)',
-                    color: selectedJobCount > 0 ? '#ffffff' : '#1a2f5a',
-                  },
-                }}
-              >
-                Compare More Metrics →
-              </Button>
-            </Tooltip>
+          <Box
+            component="span"
+            sx={{
+              position: 'relative',
+              minHeight: 24,
+              display: 'inline-flex',
+              alignItems: 'center',
+              px: 0.5,
+              color: PRIMARY_ACTION_COLOR,
+              fontWeight: 400,
+              '&::after': {
+                content: '""',
+                position: 'absolute',
+                left: 4,
+                right: 4,
+                bottom: 0,
+                height: 3,
+                borderRadius: 999,
+                bgcolor: PRIMARY_ACTION_COLOR,
+              },
+            }}
+        >
+          Jobs
         </Box>
+      </Box>
+        <Box
+          sx={{
+            width: '80%',
+            maxWidth: '1800px',
+            margin: '0 auto',
+            padding: 3,
+          }}
+        >
+        <Paper
+          elevation={0}
+          sx={{
+            mb: 2,
+
+          }}
+        >
+          <Box
+            sx={{
+              p: 2,
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
+            <TextField
+              size="small"
+              label="Select user"
+              value={selectedUserFilter}
+              onChange={(event) => setSelectedUserFilter(event.target.value)}
+              sx={{ minWidth: { xs: '100%', sm: 220 } }}
+            />
+            <TextField
+              size="small"
+              label="Select jobs"
+              placeholder="12345, 67890"
+              value={selectedJobsFilter}
+              onChange={(event) => setSelectedJobsFilter(event.target.value)}
+              sx={{ minWidth: { xs: '100%', sm: 320 } }}
+            />
+            <Box sx={{ flexGrow: 1 }} />
+            <Button
+              variant="contained"
+              onClick={loadSelectedJobs}
+              sx={{
+                minHeight: 40,
+                px: 2.5,
+                ml: { xs: 0, sm: 'auto' },
+                textTransform: 'none',
+                fontWeight: 700,
+                bgcolor: PRIMARY_ACTION_COLOR,
+                '&:hover': {
+                  bgcolor: PRIMARY_ACTION_COLOR,
+                },
+              }}
+            >
+              Load Jobs
+            </Button>
+          </Box>
+        </Paper>
+
+        <JobsPastMonthBarChart data={pastMonthJobCounts} />
 
         {/* Recent Jobs and Performance Section */}
         <Box>
 
-          <Paper sx={{ p: 1, width: '100%' }}>
+          <Paper
+            elevation={0}
+            sx={{
+              p: 1,
+              width: '100%',
+              border: `1px solid ${SECTION_BORDER_COLOR}`,
+              borderRadius: 2,
+            }}
+          >
             {userJobsData === undefined && irisJobsData === undefined ? (
               <Box sx={{ p: 3 }}>
                 <Typography>Loading job data...</Typography>
               </Box>
             ) : (
               <SciDataGrid
-                rows={jobData}
+                rows={displayedJobData}
                 columns={orderedColumns}
                 pagination
                 paginationMode="client"
@@ -1592,6 +1626,9 @@ function UserJobPerformance() {
                 disableColumnSelector
                 disableRowSelectionOnClick
                 getRowId={(row) => row.id}
+                getRowClassName={(params) => (
+                  params.indexRelativeToCurrentPage % 2 === 1 ? 'alternate-job-row' : ''
+                )}
                 autoHeight
                 rowSelectionModel={rowSelectionModel}
                 onRowSelectionModelChange={(newSelectionModel) => {
@@ -1625,12 +1662,16 @@ function UserJobPerformance() {
                   '& .MuiDataGrid-toolbarContainer': {
                     px: 1,
                     pt: 1,
-                    pb: 0.5,
+                    pb: 1.5,
                     gap: 1,
                   },
                   '& .MuiDataGrid-columnHeaders': {
-                    bgcolor: '#f5f5f5',
+                    backgroundColor: '#ffffff !important',
+                    borderTop: `1px solid ${SECTION_BORDER_COLOR}`,
                     fontWeight: 600,
+                  },
+                  '& .MuiDataGrid-topContainer, & .MuiDataGrid-filler, & .MuiDataGrid-scrollbarFiller, & .MuiDataGrid-columnHeader, & .MuiDataGrid-columnHeaderCheckbox, & .MuiDataGrid-columnHeader--sortable, & .MuiDataGrid-columnHeaderTitleContainer, & .MuiDataGrid-columnHeaderTitleContainerContent': {
+                    backgroundColor: '#ffffff !important',
                   },
                   '& .MuiDataGrid-cellCheckbox, & .MuiDataGrid-columnHeaderCheckbox': {
                     justifyContent: 'center',
@@ -1638,12 +1679,18 @@ function UserJobPerformance() {
                   '& .MuiDataGrid-columnHeader, & .MuiDataGrid-columnHeaderTitleContainer, & .MuiDataGrid-columnHeaderTitleContainerContent': {
                     justifyContent: 'flex-start',
                   },
+                  '& .MuiDataGrid-columnHeader--alignRight .MuiDataGrid-columnHeaderTitleContainer': {
+                    justifyContent: 'flex-start',
+                  },
                   '& .MuiDataGrid-columnHeaderTitle': {
                     width: '100%',
                     textAlign: 'left',
+                    color: '#111827 !important',
+                  },
+                  '& .MuiDataGrid-columnHeader .MuiTypography-root': {
+                    color: '#111827 !important',
                   },
                   '& .MuiDataGrid-cell': {
-                    borderBottom: '1px solid #e0e0e0',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'flex-start',
@@ -1654,17 +1701,26 @@ function UserJobPerformance() {
                   },
                   '& .MuiDataGrid-row': {
                     cursor: 'pointer',
+                    backgroundColor: '#ffffff',
+                  },
+                  '& .MuiDataGrid-row.alternate-job-row, & .MuiDataGrid-row.alternate-job-row .MuiDataGrid-cell, & .MuiDataGrid-row.alternate-job-row .sticky-actions-column': {
+                    backgroundColor: '#F8FAFC',
+                  },
+                  '& .MuiDataGrid-row.alternate-job-row:hover, & .MuiDataGrid-row.alternate-job-row:hover .MuiDataGrid-cell, & .MuiDataGrid-row.alternate-job-row:hover .sticky-actions-column': {
+                    backgroundColor: '#F1F3F3',
+                  },
+                  '& .MuiDataGrid-row:not(.alternate-job-row) .sticky-actions-column': {
+                    backgroundColor: '#ffffff',
                   },
                   '& .sticky-actions-column': {
                     position: 'sticky !important',
                     right: 0,
                     zIndex: 3,
-                    backgroundColor: '#ffffff',
-                    boxShadow: '-8px 0 12px -12px rgba(15, 23, 42, 0.45)',
+                    borderLeft: `1px solid ${SECTION_BORDER_COLOR}`,
                   },
                   '& .MuiDataGrid-columnHeader.sticky-actions-column': {
                     zIndex: 4,
-                    backgroundColor: '#f5f5f5',
+                    backgroundColor: '#ffffff',
                   },
                 }}
               />
@@ -1689,6 +1745,7 @@ function UserJobPerformance() {
           </Menu>
         </Box>
       </Box>
+      </Box>
       <Drawer
         anchor="right"
         open={Boolean(activeJob)}
@@ -1696,7 +1753,8 @@ function UserJobPerformance() {
         PaperProps={{
           sx: {
             width: { xs: '100%', sm: PANEL_WIDTH },
-            bgcolor: '#f8fafc',
+            bgcolor: '#ffffff',
+            boxShadow: 'none',
           },
         }}
       >
@@ -1713,7 +1771,7 @@ function UserJobPerformance() {
               sx={{
                 px: 3,
                 py: 2.5,
-                bgcolor: '#f8fafc',
+                bgcolor: '#ffffff',
                 color: '#111827',
               }}
             >
@@ -1722,35 +1780,16 @@ function UserJobPerformance() {
                   display: 'flex',
                   alignItems: 'flex-start',
                   justifyContent: 'space-between',
-                  gap: 2,
+                  gap: 1,
                 }}
               >
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="overline" sx={{ letterSpacing: '0.08em', opacity: 0.75 }}>
-                    Job Summary
+                    Job ID
                   </Typography>
-                  <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                  <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1 }}>
                     {activeJob.jobId}
                   </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-                    <Typography variant="body2" sx={{ color: '#4b5563' }}>
-                      Job Name {activeJob.jobName}
-                    </Typography>
-                    <Chip
-                      label={statusLabel}
-                      size="small"
-                      sx={{
-                        height: 24,
-                        fontWeight: 700,
-                        color: statusTone.color,
-                        bgcolor: statusTone.backgroundColor,
-                        border: `1px solid ${statusTone.borderColor}`,
-                        '& .MuiChip-label': {
-                          px: 1,
-                        },
-                      }}
-                    />
-                  </Box>
                 </Box>
                 <IconButton
                   onClick={closeJobSummaryDrawer}
@@ -1762,48 +1801,61 @@ function UserJobPerformance() {
               </Box>
             </Box>
 
-            <Box sx={{ p: 3 }}>
-              <Paper sx={{ p: 2.5, borderRadius: 3, mb: 2.5 }}>
+            <Box sx={{ px: 2, py: 1, bgcolor: '#ffffff' }}>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 1.5,
+                  mb: 3,
+                }}
+              >
                 <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827', mb: 2 }}>
                   Overview
                 </Typography>
                 <Stack spacing={1.25}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>Submit time</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', textAlign: 'right' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Submit time</Typography>
+                    <Typography variant="body2" sx={{ ...SIDE_PANEL_VALUE_SX, textAlign: 'right' }}>
                       {formatFullDateTime(activeJob.submitTime)}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>End time</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', textAlign: 'right' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Job Name</Typography>
+                    <Typography variant="body2" sx={{ ...SIDE_PANEL_VALUE_SX, textAlign: 'right' }}>
+                      {activeJob.jobName}
+                    </Typography>
+                  </Box>
+                  <Divider />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>End time</Typography>
+                    <Typography variant="body2" sx={{ ...SIDE_PANEL_VALUE_SX, textAlign: 'right' }}>
                       {formatFullDateTime(activeJob.endTime)}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>Wait time</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Wait time</Typography>
+                    <Typography variant="body2" sx={SIDE_PANEL_VALUE_SX}>
                       {activeJob.waitTime}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>Run time</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Run time</Typography>
+                    <Typography variant="body2" sx={SIDE_PANEL_VALUE_SX}>
                       {activeJob.executionTime}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>Job status</Typography>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Job status</Typography>
                     <Chip
                       label={statusLabel}
                       size="small"
                       sx={{
                         height: 24,
-                        fontWeight: 700,
+                        fontWeight: 500,
                         color: statusTone.color,
                         bgcolor: statusTone.backgroundColor,
                         border: `1px solid ${statusTone.borderColor}`,
@@ -1815,36 +1867,36 @@ function UserJobPerformance() {
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>Project</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', textAlign: 'right' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Project</Typography>
+                    <Typography variant="body2" sx={{ ...SIDE_PANEL_VALUE_SX, textAlign: 'right' }}>
                       {activeJob.projectId}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>QOS</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', textAlign: 'right' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>QOS</Typography>
+                    <Typography variant="body2" sx={{ ...SIDE_PANEL_VALUE_SX, textAlign: 'right' }}>
                       {activeJob.qos}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>Partition</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', textAlign: 'right' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Partition</Typography>
+                    <Typography variant="body2" sx={{ ...SIDE_PANEL_VALUE_SX, textAlign: 'right' }}>
                       {activeJob.partition}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>Nodes</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Nodes</Typography>
+                    <Typography variant="body2" sx={SIDE_PANEL_VALUE_SX}>
                       {activeJob.nodeCount ?? 'N/A'}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7280' }}>Node Hours</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827' }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Node Hours</Typography>
+                    <Typography variant="body2" sx={SIDE_PANEL_VALUE_SX}>
                       {activeJob.nodeHours.toFixed(2)}
                     </Typography>
                   </Box>
@@ -1852,12 +1904,13 @@ function UserJobPerformance() {
               </Paper>
 
               <Paper
+                elevation={0}
                 sx={{
                   p: 2,
                   borderRadius: 3,
                   mb: 2.5,
                   bgcolor: '#eff6ff',
-                  border: '1px solid #bfdbfe',
+                  border: `1px solid ${SECTION_BORDER_COLOR}`,
                 }}
               >
                 <Box
@@ -1898,12 +1951,12 @@ function UserJobPerformance() {
                       sx={{
                         textTransform: 'none',
                         fontWeight: 600,
-                        color: '#1d4ed8',
-                        borderColor: '#93c5fd',
+                        color: PRIMARY_ACTION_COLOR,
+                        borderColor: PRIMARY_ACTION_COLOR,
                         bgcolor: '#ffffff',
                         '&:hover': {
-                          borderColor: '#60a5fa',
-                          bgcolor: '#dbeafe',
+                          borderColor: PRIMARY_ACTION_COLOR,
+                          bgcolor: PRIMARY_ACTION_HOVER_BACKGROUND,
                         },
                       }}
                     >
@@ -1913,77 +1966,9 @@ function UserJobPerformance() {
                 </Box>
               </Paper>
 
-              <Paper sx={{ p: 2.5, borderRadius: 3, mb: 2.5 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827', mb: 2 }}>
-                  Runtime Resource Distribution
-                </Typography>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'minmax(0, 1fr) 170px',
-                    gap: 2,
-                    alignItems: 'center',
-                  }}
-                >
-                  <Stack spacing={1.25}>
-                    {donutSegments.map((segment) => (
-                      <Box
-                        key={segment.label}
-                        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Box
-                            sx={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: '50%',
-                              bgcolor: segment.color,
-                            }}
-                          />
-                          <Typography variant="body2" sx={{ color: '#111827', fontWeight: 600 }}>
-                            {segment.label}
-                          </Typography>
-                        </Box>
-                        <Typography variant="body2" sx={{ color: '#475569' }}>
-                          {segment.share.toFixed(1)}%
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Stack>
-                  <Plot
-                    data={[
-                      {
-                        type: 'pie',
-                        hole: 0.62,
-                        values: donutSegments.map((segment) => segment.share),
-                        labels: donutSegments.map((segment) => segment.label),
-                        marker: {
-                          colors: donutSegments.map((segment) => segment.color),
-                          line: { color: '#f8fafc', width: 4 },
-                        },
-                        textinfo: 'none',
-                        hovertemplate: '%{label}: %{value:.1f}%<extra></extra>',
-                        sort: false,
-                        showlegend: false,
-                      },
-                    ]}
-                    layout={{
-                      autosize: true,
-                      height: 180,
-                      margin: { l: 0, r: 0, t: 0, b: 0 },
-                      paper_bgcolor: 'rgba(0,0,0,0)',
-                      plot_bgcolor: 'rgba(0,0,0,0)',
-                    }}
-                    config={{ responsive: true, displayModeBar: false }}
-                    style={{ width: '100%' }}
-                  />
-                </Box>
-              </Paper>
-
-              <ComputePerformanceCard snapshot={computePerformanceSnapshot} />
-              <PowerConsumptionCard powerConsumption={powerConsumptionSummary} />
-              <NetworkPerformanceCard
-                networkPerformance={performanceSummary.networkPerformance}
+              <ComputePerformanceCard
+                snapshot={computePerformanceSnapshot}
+                nodePower={powerConsumptionSummary.nodePower}
               />
             </Box>
             </Box>
@@ -1993,8 +1978,8 @@ function UserJobPerformance() {
                 bottom: 0,
                 px: 3,
                 py: 2,
-                borderTop: '1px solid #e2e8f0',
-                bgcolor: 'rgba(248, 250, 252, 0.96)',
+                borderTop: `1px solid ${SECTION_BORDER_COLOR}`,
+                bgcolor: 'rgba(255, 255, 255, 0.96)',
                 backdropFilter: 'blur(8px)',
               }}
             >
@@ -2009,13 +1994,13 @@ function UserJobPerformance() {
                   sx={{
                     textTransform: 'none',
                     fontWeight: 600,
-                    bgcolor: '#0f172a',
+                    bgcolor: PRIMARY_ACTION_COLOR,
                     '&:hover': {
-                      bgcolor: '#1e293b',
+                      bgcolor: PRIMARY_ACTION_COLOR,
                     },
                   }}
                 >
-                  View Performance Details
+                  View Job Details
                 </Button>
               </RouterLink>
             </Box>

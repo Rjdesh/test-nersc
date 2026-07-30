@@ -8,6 +8,7 @@ import {
   Breadcrumbs,
   Button,
   Chip,
+  Container,
   FormControl,
   FormControlLabel,
   IconButton,
@@ -96,6 +97,44 @@ const formatMetricName = (metric: string) =>
   metric.replace('nersc_ldms_dcgm_', '').replace(/_/g, ' ');
 
 const formatValue = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+const COLOR_TOKENS = {
+  pageBg: '#ffffff',
+  textPrimary: '#111827',
+  textSecondary: '#4b5563',
+  label: '#475569',
+} as const;
+
+const TITLE_SX = {
+  fontWeight: 700,
+  color: COLOR_TOKENS.textPrimary,
+  letterSpacing: '-0.01em',
+};
+
+const LEFT_PANEL_TITLE_SX = {
+  fontWeight: 700,
+  color: COLOR_TOKENS.textPrimary,
+};
+
+const LEFT_PANEL_SECTION_LABEL_SX = {
+  fontWeight: 700,
+  fontSize: '0.95rem',
+  color: COLOR_TOKENS.textPrimary,
+};
+
+const LEFT_PANEL_SUBLABEL_SX = {
+  fontWeight: 700,
+  color: COLOR_TOKENS.label,
+};
+
+const LEFT_PANEL_OPTION_LABEL_SX = {
+  fontWeight: 500,
+  color: COLOR_TOKENS.textPrimary,
+};
+
+const LEFT_PANEL_META_SX = {
+  color: COLOR_TOKENS.textSecondary,
+};
+
 const DUMMY_JOB_COUNT = 5;
 const SYNTHETIC_PROJECT_IDS = ['m842', 'm984', 'm2137', 'm5560', 'm7781'] as const;
 const METRIC_CATEGORIES: MetricCategory[] = [
@@ -178,8 +217,8 @@ function CompareJobsPage() {
   const [isFocusExpanded, setIsFocusExpanded] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['efficiency-snapshot']);
   const [activeSidebarSection, setActiveSidebarSection] = useState<
-    'jobs' | 'metrics' | 'data-sampling' | null
-  >('jobs');
+    'machine' | 'jobs' | 'metrics' | 'data-sampling' | null
+  >('machine');
 
   const allMetricsByJob = useMemo(() => {
     if (!metricsByJob) {
@@ -508,124 +547,151 @@ function CompareJobsPage() {
   const hasCustomRelativeFocusWindow =
     commonRelativeFocusWindow[0] !== 0 || commonRelativeFocusWindow[1] !== 100;
   const leftPanelTagSx = {
-    height: 24,
-    bgcolor: '#f3f4f6',
-    color: '#374151',
-    border: '1px solid #d1d5db',
+    height: 32,
+    bgcolor: '#DEF6FF',
+    color: '#002E59',
+    border: '1px solid currentColor',
     '& .MuiChip-label': {
-      px: 1,
-      fontWeight: 600,
+      px: 1.25,
+      fontWeight: 500,
+    },
+    '& .MuiChip-deleteIcon': {
+      color: '#1C73B9',
+      fontSize: 16,
+      '&:hover': {
+        color: '#002E59',
+      },
     },
   };
 
   const handleSidebarSectionToggle =
-    (section: 'jobs' | 'metrics' | 'data-sampling') =>
+    (section: 'machine' | 'jobs' | 'metrics' | 'data-sampling') =>
     (_event: SyntheticEvent, expanded: boolean) => {
       setActiveSidebarSection(expanded ? section : null);
     };
 
   return (
-    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '80vh', p: 3 }}>
-      <Breadcrumbs
-        separator={<NavigateNextIcon fontSize="small" />}
-        sx={{ mb: 2 }}
-      >
-        <Link component={RouterLink} to="/center-performance" underline="hover" color="primary">
-          For Users
-        </Link>
-        <Link component={RouterLink} to="/user-job-performance-alphaver" underline="hover" color="primary">
-          Your Job Performance
-        </Link>
-        <Typography color="text.primary">Compare More Metrics</Typography>
-      </Breadcrumbs>
-      <Box
-        sx={{
-          mb: 3,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 2,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Typography variant="h4" sx={{ fontWeight: 700, color: '#1d2430' }}>
-          Compare More Metrics
-        </Typography>
-
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          <Button
-            variant="text"
-            size="large"
-            startIcon={<DownloadOutlinedIcon fontSize="small" />}
-            sx={{ textTransform: 'none', color: '#475569', fontWeight: 600 }}
+    <Box sx={{ bgcolor: COLOR_TOKENS.pageBg, minHeight: '100vh', pt: 3, pb: 4 }}>
+      <Container maxWidth="xl">
+        <Breadcrumbs
+          separator={<NavigateNextIcon fontSize="small" />}
+          sx={{ mb: 1.5 }}
+          aria-label="breadcrumb"
+        >
+          <Link
+            component={RouterLink}
+            to="/center-performance"
+            underline="hover"
+            sx={{ color: '#1B4684', fontWeight: 500 }}
           >
-            Export Data
-          </Button>
-          <Button
-            variant="text"
-            size="large"
-            startIcon={<DescriptionOutlinedIcon fontSize="small" />}
-            sx={{ textTransform: 'none', color: '#475569', fontWeight: 600 }}
+            Iris
+          </Link>
+          <Link
+            component={RouterLink}
+            to="/user-job-performance-alphaver"
+            underline="hover"
+            sx={{ color: '#1B4684', fontWeight: 500 }}
           >
-            Export Report
-          </Button>
-        </Box>
-      </Box>
-
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', md: 'row' },
-          gap: 2,
-          alignItems: 'flex-start',
-        }}
-      >
+            Utilities
+          </Link>
+          <Typography sx={{ color: COLOR_TOKENS.textPrimary, fontWeight: 500 }}>
+            Performance Analyzer
+          </Typography>
+        </Breadcrumbs>
         <Box
           sx={{
-            width: { xs: '100%', md: 320, lg: 360 },
-            flexShrink: 0,
+            mb: 3,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2,
+            flexWrap: 'wrap',
           }}
         >
+          <Typography variant="h4" sx={TITLE_SX}>
+            Performance Analyzer
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Button
+              variant="text"
+              size="large"
+              startIcon={<DownloadOutlinedIcon fontSize="small" />}
+              sx={{ textTransform: 'none', color: '#475569', fontWeight: 600 }}
+            >
+              Export Data
+            </Button>
+            <Button
+              variant="text"
+              size="large"
+              startIcon={<DescriptionOutlinedIcon fontSize="small" />}
+              sx={{ textTransform: 'none', color: '#475569', fontWeight: 600 }}
+            >
+              Export Report
+            </Button>
+          </Box>
+        </Box>
+
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', md: 'row' },
+            gap: { xs: 2, md: 3 },
+            alignItems: 'flex-start',
+          }}
+        >
+          <Box
+            sx={{
+              width: { xs: '100%', md: 320, lg: 360 },
+              flexShrink: 0,
+            }}
+          >
           <Paper
+            elevation={0}
             sx={{
               position: { xs: 'relative', md: 'sticky' },
               top: { xs: 'auto', md: `${stickySidebarTop}px` },
               display: 'flex',
               flexDirection: 'column',
               width: '100%',
-              minHeight: { xs: 'auto', md: '70vh' },
-              maxHeight: { xs: 'none', md: `calc(100vh - ${stickySidebarTop}px)` },
+              height: { xs: 'auto', md: 'clamp(360px, calc(100vh), 680px)' },
               overflow: 'hidden',
               alignSelf: 'flex-start',
+              boxShadow: 'none',
+              boxSizing: 'border-box',
+              borderRadius: 0,
+              borderRight: { xs: 'none', md: '1px solid #E5E7EB' },
+              pr: { xs: 0, md: 2 },
+              '& .MuiInputLabel-root': {
+                color: COLOR_TOKENS.label,
+                fontWeight: 500,
+              },
+              '& .MuiInputLabel-root.Mui-focused': {
+                color: '#1B4684',
+              },
             }}
           >
             <Box sx={{ flex: 1, overflowY: 'auto', p: 2, pb: 0 }}>
               <Box sx={{ mb: 2, px: 1.5 }}>
                 <Typography
                   variant="h6"
-                  sx={{
-                    fontWeight: 700,
-                    letterSpacing: 0.2,
-                    color: '#475569',
-                    mb: 1.25,
-                  }}
+                  sx={{ ...LEFT_PANEL_TITLE_SX, mb: 1.25 }}
                 >
-                  Data Controls
+                  Select Filters
                 </Typography>
               </Box>
 
               <Accordion
                 disableGutters
-                expanded={activeSidebarSection === 'jobs'}
-                onChange={handleSidebarSectionToggle('jobs')}
+                expanded={activeSidebarSection === 'machine'}
+                onChange={handleSidebarSectionToggle('machine')}
                 sx={{
                   boxShadow: 'none',
                   borderTop: '1px solid #e2e8f0',
-                  borderBottom: activeSidebarSection === 'jobs' ? '1px solid #e2e8f0' : 'none',
+                  borderBottom: activeSidebarSection === 'machine' ? '1px solid #e2e8f0' : 'none',
                   borderLeft: 'none',
                   borderRight: 'none',
                   borderRadius: 0,
-                  bgcolor: activeSidebarSection === 'jobs' ? '#f8fafc' : 'transparent',
                   mb: 1.5,
                   '&:before': { display: 'none' },
                 }}
@@ -644,15 +710,64 @@ function CompareJobsPage() {
                   <Box sx={{ minWidth: 0 }}>
                     <Typography
                       variant="subtitle1"
-                      sx={{
-                        fontWeight: 700,
-                        fontSize: '0.85rem',
-                        letterSpacing: 0.5,
-                        textTransform: 'uppercase',
-                        color: '#64748b',
-                      }}
+                      sx={LEFT_PANEL_SECTION_LABEL_SX}
                     >
-                      Machine & Jobs
+                      Machine
+                    </Typography>
+                    {activeSidebarSection !== 'machine' && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.75 }}>
+                        <Chip size="medium" label={machine} sx={leftPanelTagSx} />
+                      </Box>
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ px: 2, pt: 1, pb: 1.75 }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Machine</InputLabel>
+                    <Select
+                      label="Machine"
+                      value={machine}
+                      onChange={(event) => setMachine(event.target.value)}
+                    >
+                      <MenuItem value="perlmutter gpu">perlmutter gpu</MenuItem>
+                      <MenuItem value="perlmutter cpu">perlmutter cpu</MenuItem>
+                    </Select>
+                  </FormControl>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion
+                disableGutters
+                expanded={activeSidebarSection === 'jobs'}
+                onChange={handleSidebarSectionToggle('jobs')}
+                sx={{
+                  boxShadow: 'none',
+                  borderTop: '1px solid #e2e8f0',
+                  borderBottom: activeSidebarSection === 'jobs' ? '1px solid #e2e8f0' : 'none',
+                  borderLeft: 'none',
+                  borderRight: 'none',
+                  borderRadius: 0,
+                  mb: 1.5,
+                  '&:before': { display: 'none' },
+                }}
+              >
+                <AccordionSummary
+                  sx={{
+                    px: 1.5,
+                    alignItems: 'center',
+                    '& .MuiAccordionSummary-content': {
+                      my: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                    },
+                  }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography
+                      variant="subtitle1"
+                      sx={LEFT_PANEL_SECTION_LABEL_SX}
+                    >
+                      Jobs
                     </Typography>
                     {activeSidebarSection !== 'jobs' && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.75 }}>
@@ -663,11 +778,11 @@ function CompareJobsPage() {
                               title={`Project ${job.projectId} • Job ID ${job.id}`}
                               arrow
                             >
-                              <Chip size="small" label={job.jobName} sx={leftPanelTagSx} />
+                              <Chip size="medium" label={job.jobName} sx={leftPanelTagSx} />
                             </Tooltip>
                           ))
                         ) : (
-                          <Chip size="small" label="No jobs selected" sx={leftPanelTagSx} />
+                          <Chip size="medium" label="No jobs selected" sx={leftPanelTagSx} />
                         )}
                       </Box>
                     )}
@@ -675,18 +790,6 @@ function CompareJobsPage() {
                 </AccordionSummary>
                 <AccordionDetails sx={{ px: 2, pt: 1, pb: 1.75 }}>
                   <Stack spacing={2.25}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Machine</InputLabel>
-                      <Select
-                        label="Machine"
-                        value={machine}
-                        onChange={(event) => setMachine(event.target.value)}
-                      >
-                        <MenuItem value="perlmutter gpu">perlmutter gpu</MenuItem>
-                        <MenuItem value="perlmutter cpu">perlmutter cpu</MenuItem>
-                      </Select>
-                    </FormControl>
-
                     <Autocomplete
                       options={searchableJobOptions}
                       value={null}
@@ -716,10 +819,10 @@ function CompareJobsPage() {
                         return (
                           <Box component="li" key={key} {...optionProps}>
                             <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              <Typography variant="body2" sx={LEFT_PANEL_OPTION_LABEL_SX}>
                                 {option.jobName}
                               </Typography>
-                              <Typography variant="caption" sx={{ color: '#64748b' }}>
+                              <Typography variant="caption" sx={LEFT_PANEL_META_SX}>
                                 Job ID {option.id} • Project {option.projectId}
                               </Typography>
                             </Box>
@@ -736,9 +839,9 @@ function CompareJobsPage() {
                           arrow
                         >
                           <Chip
+                            size="medium"
                             label={job.jobName}
                             onDelete={() => handleRemoveComparedJob(job.id)}
-                            variant="outlined"
                             sx={leftPanelTagSx}
                           />
                         </Tooltip>
@@ -759,7 +862,6 @@ function CompareJobsPage() {
                   borderLeft: 'none',
                   borderRight: 'none',
                   borderRadius: 0,
-                  bgcolor: activeSidebarSection === 'metrics' ? '#f8fafc' : 'transparent',
                   mb: 1.5,
                   '&:before': { display: 'none' },
                 }}
@@ -778,13 +880,7 @@ function CompareJobsPage() {
                   <Box sx={{ minWidth: 0 }}>
                     <Typography
                       variant="subtitle1"
-                      sx={{
-                        fontWeight: 700,
-                        fontSize: '0.85rem',
-                        letterSpacing: 0.5,
-                        textTransform: 'uppercase',
-                        color: '#64748b',
-                      }}
+                      sx={LEFT_PANEL_SECTION_LABEL_SX}
                     >
                       Metrics
                     </Typography>
@@ -792,12 +888,12 @@ function CompareJobsPage() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.75 }}>
                         {selectedMetricLabel ? (
                           <Chip
-                            size="small"
+                            size="medium"
                             label={selectedMetricLabel}
                             sx={leftPanelTagSx}
                           />
                         ) : (
-                          <Chip size="small" label="No metric selected" sx={leftPanelTagSx} />
+                          <Chip size="medium" label="No metric selected" sx={leftPanelTagSx} />
                         )}
                       </Box>
                     )}
@@ -819,8 +915,8 @@ function CompareJobsPage() {
                       <Typography
                         variant="subtitle2"
                         sx={{
+                          ...LEFT_PANEL_SUBLABEL_SX,
                           display: 'block',
-                          fontWeight: 700,
                           px:1.5,
                           mb: 0.75,
                         }}
@@ -830,13 +926,13 @@ function CompareJobsPage() {
                       <Box sx={{ px:1.5, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                         {selectedMetricLabel ? (
                           <Chip
-                            size="small"
+                            size="medium"
                             label={selectedMetricLabel}
                             onDelete={() => setSelectedMetric('')}
                             sx={leftPanelTagSx}
                           />
                         ) : (
-                          <Chip size="small" label="No metric selected" sx={leftPanelTagSx} />
+                          <Chip size="medium" label="No metric selected" sx={leftPanelTagSx} />
                         )}
                       </Box>
                     </Box>
@@ -856,7 +952,7 @@ function CompareJobsPage() {
                         >
                           <Box sx={{ px: 1.5, pb: 0.5, display: 'flex', alignItems: 'center', gap: 0.75 }}>
                             <PushPinIcon sx={{ color: '#94a3b8', fontSize: 14, flexShrink: 0 }} />
-                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                            <Typography variant="subtitle2" sx={LEFT_PANEL_SUBLABEL_SX}>
                               Pinned Metrics
                             </Typography>
                           </Box>
@@ -889,10 +985,10 @@ function CompareJobsPage() {
                                     }}
                                   >
                                     <Box sx={{ minWidth: 0 }}>
-                                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                      <Typography variant="body2" sx={LEFT_PANEL_OPTION_LABEL_SX}>
                                         {metric.label}
                                       </Typography>
-                                      <Typography variant="caption" sx={{ color: '#64748b' }}>
+                                      <Typography variant="caption" sx={LEFT_PANEL_META_SX}>
                                         {metric.categoryTitle}
                                       </Typography>
                                     </Box>
@@ -972,7 +1068,7 @@ function CompareJobsPage() {
                           >
                             <Box sx={{ minWidth: 0 }}>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                <Typography variant="subtitle2" sx={LEFT_PANEL_SUBLABEL_SX}>
                                   {category.title}
                                 </Typography>
                               </Box>
@@ -1018,7 +1114,7 @@ function CompareJobsPage() {
                                         width: '100%',
                                       }}
                                     >
-                                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                      <Typography variant="body2" sx={LEFT_PANEL_OPTION_LABEL_SX}>
                                         {metric.label}
                                       </Typography>
                                       <Box
@@ -1080,10 +1176,10 @@ function CompareJobsPage() {
                           bgcolor: '#f8fafc',
                         }}
                       >
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        <Typography variant="body2" sx={LEFT_PANEL_OPTION_LABEL_SX}>
                           No metrics match this filter
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#64748b' }}>
+                        <Typography variant="caption" sx={LEFT_PANEL_META_SX}>
                           Try clearing the search.
                         </Typography>
                       </Box>
@@ -1104,7 +1200,6 @@ function CompareJobsPage() {
                   borderLeft: 'none',
                   borderRight: 'none',
                   borderRadius: 0,
-                  bgcolor: activeSidebarSection === 'data-sampling' ? '#f8fafc' : 'transparent',
                   mb: 1.5,
                   '&:before': { display: 'none' },
                 }}
@@ -1131,25 +1226,19 @@ function CompareJobsPage() {
                   >
                     <Typography
                       variant="subtitle1"
-                      sx={{
-                        fontWeight: 700,
-                        fontSize: '0.85rem',
-                        letterSpacing: 0.5,
-                        textTransform: 'uppercase',
-                        color: '#64748b',
-                      }}
+                      sx={LEFT_PANEL_SECTION_LABEL_SX}
                     >
                       Data Sampling
                     </Typography>
                     {activeSidebarSection !== 'data-sampling' && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                         <Chip
-                          size="small"
+                          size="medium"
                           label={downsamplingFunctionLabelByValue[downsamplingFunction]}
                           sx={leftPanelTagSx}
                         />
                         <Chip
-                          size="small"
+                          size="medium"
                           label={downsamplingWindowLabel}
                           sx={leftPanelTagSx}
                         />
@@ -1204,12 +1293,12 @@ function CompareJobsPage() {
                           {!isAggregationExpanded && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                               <Chip
-                                size="small"
+                                size="medium"
                                 label={granularityLabelByValue[granularity]}
                                 sx={leftPanelTagSx}
                               />
                               <Chip
-                                size="small"
+                                size="medium"
                                 label={aggregationLabelByValue[aggregation]}
                                 sx={leftPanelTagSx}
                               />
@@ -1287,18 +1376,18 @@ function CompareJobsPage() {
                             gap: 0.75,
                           }}
                         >
-                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                          <Typography variant="subtitle2" sx={LEFT_PANEL_SUBLABEL_SX}>
                             Data Downsampling
                           </Typography>
                           {!isDownsamplingExpanded && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                               <Chip
-                                size="small"
+                                size="medium"
                                 label={downsamplingFunctionLabelByValue[downsamplingFunction]}
                                 sx={leftPanelTagSx}
                               />
                               <Chip
-                                size="small"
+                                size="medium"
                                 label={downsamplingWindowLabel}
                                 sx={leftPanelTagSx}
                               />
@@ -1393,7 +1482,7 @@ function CompareJobsPage() {
                             gap: 0.75,
                           }}
                         >
-                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                          <Typography variant="subtitle2" sx={LEFT_PANEL_SUBLABEL_SX}>
                             Data Focus
                           </Typography>
                           
@@ -1401,14 +1490,14 @@ function CompareJobsPage() {
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                               {hasCustomRelativeFocusWindow && (
                                 <Chip
-                                  size="small"
+                                  size="medium"
                                   label={`${commonRelativeFocusWindow[0]}% - ${commonRelativeFocusWindow[1]}%`}
                                   sx={leftPanelTagSx}
                                 />
                               )}
                               {hasFocusedNodes && (
                                 <Chip
-                                  size="small"
+                                  size="medium"
                                   label="Selected nodes"
                                   sx={leftPanelTagSx}
                                 />
@@ -1440,10 +1529,10 @@ function CompareJobsPage() {
                                 >
                                   <Stack spacing={1.25}>
                                     <Box>
-                                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      <Typography variant="body2" sx={LEFT_PANEL_OPTION_LABEL_SX}>
                                         {job.jobName}
                                       </Typography>
-                                      <Typography variant="caption" sx={{ color: '#64748b' }}>
+                                      <Typography variant="caption" sx={LEFT_PANEL_META_SX}>
                                         Job ID {job.id} • Project {job.projectId}
                                       </Typography>
                                     </Box>
@@ -1474,6 +1563,7 @@ function CompareJobsPage() {
                                         selectedNodes.map((node) => (
                                           <Chip
                                             key={node}
+                                            size="medium"
                                             label={node}
                                             onDelete={() => handleNodeRemove(job.id, node)}
                                             sx={leftPanelTagSx}
@@ -1498,11 +1588,8 @@ function CompareJobsPage() {
                             <Typography
                               variant="caption"
                               sx={{
+                                ...LEFT_PANEL_SUBLABEL_SX,
                                 display: 'block',
-                                fontWeight: 700,
-                                letterSpacing: 0.4,
-                                textTransform: 'uppercase',
-                                color: '#64748b',
                                 mb: 1,
                               }}
                             >
@@ -1527,10 +1614,10 @@ function CompareJobsPage() {
                                 mt: 0.5,
                               }}
                             >
-                              <Typography variant="caption" sx={{ color: '#64748b' }}>
+                              <Typography variant="caption" sx={LEFT_PANEL_META_SX}>
                                 Start {commonRelativeFocusWindow[0]}%
                               </Typography>
-                              <Typography variant="caption" sx={{ color: '#64748b' }}>
+                              <Typography variant="caption" sx={LEFT_PANEL_META_SX}>
                                 End {commonRelativeFocusWindow[1]}%
                               </Typography>
                             </Box>
@@ -1565,8 +1652,17 @@ function CompareJobsPage() {
         </Box>
 
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Paper sx={{ p: 2 }}>
-            <Paper sx={{ p: 2, bgcolor: '#f8fafc', mb: 3 }}>
+          <Paper elevation={0} sx={{ p: 2, boxShadow: 'none' }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                bgcolor: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                boxShadow: 'none',
+                mb: 3,
+              }}
+            >
               <Box
                 sx={{
                   mb: 1.5,
@@ -1658,6 +1754,7 @@ function CompareJobsPage() {
           </Paper>
         </Box>
       </Box>
+      </Container>
     </Box>
   );
 }
