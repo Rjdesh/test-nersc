@@ -7,8 +7,11 @@ import {
   Box,
   Breadcrumbs,
   Button,
+  Checkbox,
   Chip,
+  Collapse,
   Container,
+  Divider,
   FormControl,
   FormControlLabel,
   IconButton,
@@ -16,8 +19,6 @@ import {
   Link,
   MenuItem,
   Paper,
-  Radio,
-  RadioGroup,
   Select,
   Slider,
   Stack,
@@ -33,6 +34,7 @@ import {
 } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import PushPinIcon from '@mui/icons-material/PushPin';
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
 import SearchIcon from '@mui/icons-material/Search';
@@ -121,6 +123,19 @@ const LEFT_PANEL_SECTION_LABEL_SX = {
   color: COLOR_TOKENS.textPrimary,
 };
 
+const SECTION_TITLE_SX = {
+  fontWeight: 700,
+  color: COLOR_TOKENS.textPrimary,
+};
+
+const SECTION_TOGGLE_SX = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 1,
+  cursor: 'pointer',
+  py: 0.5,
+};
+
 const LEFT_PANEL_SUBLABEL_SX = {
   fontWeight: 700,
   color: COLOR_TOKENS.label,
@@ -137,6 +152,14 @@ const LEFT_PANEL_META_SX = {
 
 const DUMMY_JOB_COUNT = 5;
 const SYNTHETIC_PROJECT_IDS = ['m842', 'm984', 'm2137', 'm5560', 'm7781'] as const;
+const DEFAULT_SELECTED_METRIC_LABELS = [
+  'GPU Utilization (%)',
+  'CPU Utilization (%)',
+  'Node Power',
+  'GPU Memory Bandwidth Utilization (%)',
+  'CPU Memory Bandwidth',
+  'PCIe Throughput (MB/s)',
+] as const;
 const METRIC_CATEGORIES: MetricCategory[] = [
   {
     id: 'efficiency-snapshot',
@@ -200,8 +223,9 @@ function CompareJobsPage() {
   const [jobSearchInput, setJobSearchInput] = useState('');
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [comparedJobs, setComparedJobs] = useState<string[]>([]);
-  const [selectedMetric, setSelectedMetric] = useState('');
-  const [plotAggregation, setPlotAggregation] = useState('none');
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
+  const [plotAggregationByMetric, setPlotAggregationByMetric] = useState<Record<string, string>>({});
+  const [expandedMetricSections, setExpandedMetricSections] = useState<Record<string, boolean>>({});
   const [hasInitializedSelectedMetric, setHasInitializedSelectedMetric] = useState(false);
   const [downsamplingFunction, setDownsamplingFunction] = useState('mean');
   const [downsamplingWindowValue, setDownsamplingWindowValue] = useState(15);
@@ -328,6 +352,19 @@ function CompareJobsPage() {
       .filter((metric) => pinnedMetricIdSet.has(metric.metricId));
   }, [curatedMetricGroups, pinnedMetricIds]);
 
+  const metricLabelByValue = useMemo(() => {
+    const labels = new Map<string, string>();
+
+    curatedMetricGroups
+      .flatMap((category) => category.metrics)
+      .forEach((metric) => {
+        labels.set(metric.metricId, metric.label);
+        metric.aliases.forEach((alias) => labels.set(alias, metric.label));
+      });
+
+    return labels;
+  }, [curatedMetricGroups]);
+
   const jobOptions = useMemo<JobOption[]>(() => {
     if (!allMetricsByJob) {
       return [];
@@ -404,28 +441,58 @@ function CompareJobsPage() {
   }, [focusableJobOptions, jobMetadataById]);
 
   useEffect(() => {
-    if (!hasInitializedSelectedMetric && !selectedMetric && metricNames.length) {
-      setSelectedMetric(
-        metricNames.find((metric) => metric.includes('power_usage')) ?? metricNames[0]
-      );
+    if (!hasInitializedSelectedMetric && !selectedMetrics.length && metricNames.length) {
+      const defaultMetricLabels = new Set<string>(DEFAULT_SELECTED_METRIC_LABELS);
+      const defaultMetrics = curatedMetricGroups
+        .flatMap((category) => category.metrics)
+        .filter((metric) => defaultMetricLabels.has(metric.label))
+        .map((metric) => metric.availableAlias ?? metric.metricId);
+      setSelectedMetrics(defaultMetrics.length ? defaultMetrics : [metricNames[0]]);
       setHasInitializedSelectedMetric(true);
     }
-  }, [hasInitializedSelectedMetric, selectedMetric, metricNames]);
+  }, [curatedMetricGroups, hasInitializedSelectedMetric, selectedMetrics.length, metricNames]);
 
   useEffect(() => {
     if (!selectedJobs.length && jobOptions.length) {
-      const defaultJobs = jobOptions.slice(0, 2).map((job) => job.id);
+      const defaultJobs = jobOptions.slice(0, 1).map((job) => job.id);
       setSelectedJobs(defaultJobs);
       setComparedJobs(defaultJobs);
     }
   }, [jobOptions, selectedJobs.length]);
 
-  const chartTraces = useMemo(() => {
-    if (!allMetricsByJob || !selectedMetric) {
+  useEffect(() => {
+    setPlotAggregationByMetric((current) => {
+      const selectedMetricSet = new Set(selectedMetrics);
+      const nextAggregations = Object.fromEntries(
+        Object.entries(current).filter(([metric]) => selectedMetricSet.has(metric))
+      );
+
+      return Object.keys(nextAggregations).length === Object.keys(current).length
+        ? current
+        : nextAggregations;
+    });
+  }, [selectedMetrics]);
+
+  useEffect(() => {
+    setExpandedMetricSections((current) => {
+      const nextSections = Object.fromEntries(
+        selectedMetrics.map((metric) => [metric, current[metric] ?? true])
+      );
+
+      return Object.keys(nextSections).length === Object.keys(current).length &&
+        Object.entries(nextSections).every(([metric, expanded]) => current[metric] === expanded)
+        ? current
+        : nextSections;
+    });
+  }, [selectedMetrics]);
+
+  const metricComparisonSections = useMemo(() => {
+    if (!allMetricsByJob || !selectedMetrics.length) {
       return [];
     }
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#ef4444'];
-    return comparedJobs.flatMap((jobId, index) => {
+    return selectedMetrics.map((metric) => {
+      const traces = comparedJobs.flatMap((jobId, index) => {
         const series = allMetricsByJob[jobId];
         if (!series || !series.length) {
           return [];
@@ -433,39 +500,42 @@ function CompareJobsPage() {
         const maxTime = Math.max(...series.map((row) => row['Floored Relative Time']), 1);
         return [{
           x: series.map((row) => Math.round((row['Floored Relative Time'] / maxTime) * 100)),
-          y: series.map((row) => row[selectedMetric]),
+          y: series.map((row) => row[metric]),
           type: 'scatter' as const,
           mode: 'lines' as const,
           name: `Job ${jobId}`,
           line: { width: 2, color: colors[index % colors.length] },
         }];
       });
-  }, [allMetricsByJob, comparedJobs, selectedMetric]);
 
-  const summaryRows = useMemo(() => {
-    if (!allMetricsByJob || !selectedMetric) {
-      return [];
-    }
-    return comparedJobs.map((jobId) => {
-      const values =
-        (allMetricsByJob[jobId] ?? [])
-          .map((row) => row[selectedMetric])
-          .filter((value): value is number => typeof value === 'number') ?? [];
+      const summaryRows = comparedJobs.map((jobId) => {
+        const values =
+          (allMetricsByJob[jobId] ?? [])
+            .map((row) => row[metric])
+            .filter((value): value is number => typeof value === 'number') ?? [];
 
-      if (!values.length) {
-        return { jobId, mean: 0, avg: 0, min: 0, max: 0 };
-      }
+        if (!values.length) {
+          return { jobId, mean: 0, avg: 0, min: 0, max: 0 };
+        }
 
-      const sum = values.reduce((total, value) => total + value, 0);
+        const sum = values.reduce((total, value) => total + value, 0);
+        return {
+          jobId,
+          mean: sum / values.length,
+          avg: sum / values.length,
+          min: Math.min(...values),
+          max: Math.max(...values),
+        };
+      });
+
       return {
-        jobId,
-        mean: sum / values.length,
-        avg: sum / values.length,
-        min: Math.min(...values),
-        max: Math.max(...values),
+        metric,
+        label: metricLabelByValue.get(metric) ?? formatMetricName(metric),
+        traces,
+        summaryRows,
       };
     });
-  }, [allMetricsByJob, comparedJobs, selectedMetric]);
+  }, [allMetricsByJob, comparedJobs, metricLabelByValue, selectedMetrics]);
 
   const handleJobAdd = (_event: SyntheticEvent, value: JobOption | null) => {
     if (!value || selectedJobs.includes(value.id)) {
@@ -500,6 +570,28 @@ function CompareJobsPage() {
         ? current.filter((id) => id !== metricId)
         : [...current, metricId]
     );
+  };
+
+  const handleToggleSelectedMetric = (metric: string) => {
+    setSelectedMetrics((current) =>
+      current.includes(metric)
+        ? current.filter((selectedMetric) => selectedMetric !== metric)
+        : [...current, metric]
+    );
+  };
+
+  const handlePlotAggregationChange = (metric: string, value: string) => {
+    setPlotAggregationByMetric((current) => ({
+      ...current,
+      [metric]: value,
+    }));
+  };
+
+  const handleMetricSectionToggle = (metric: string) => {
+    setExpandedMetricSections((current) => ({
+      ...current,
+      [metric]: !(current[metric] ?? true),
+    }));
   };
 
   const handleFocusedNodesChange = (jobId: string, value: string[]) => {
@@ -541,7 +633,10 @@ function CompareJobsPage() {
     p95: 'P95',
   };
 
-  const selectedMetricLabel = selectedMetric ? formatMetricName(selectedMetric) : '';
+  const selectedMetricLabels = selectedMetrics.map((metric) => ({
+    metric,
+    label: metricLabelByValue.get(metric) ?? formatMetricName(metric),
+  }));
   const downsamplingWindowLabel = `${downsamplingWindowValue} ${downsamplingWindowUnit}`;
   const hasFocusedNodes = Object.values(focusNodesByJob).some((nodes) => nodes.length > 0);
   const hasCustomRelativeFocusWindow =
@@ -886,12 +981,15 @@ function CompareJobsPage() {
                     </Typography>
                     {activeSidebarSection !== 'metrics' && (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.75 }}>
-                        {selectedMetricLabel ? (
-                          <Chip
-                            size="medium"
-                            label={selectedMetricLabel}
-                            sx={leftPanelTagSx}
-                          />
+                        {selectedMetricLabels.length ? (
+                          selectedMetricLabels.map((metric) => (
+                            <Chip
+                              key={metric.metric}
+                              size="medium"
+                              label={metric.label}
+                              sx={leftPanelTagSx}
+                            />
+                          ))
                         ) : (
                           <Chip size="medium" label="No metric selected" sx={leftPanelTagSx} />
                         )}
@@ -921,26 +1019,26 @@ function CompareJobsPage() {
                           mb: 0.75,
                         }}
                       >
-                        Selected Metric:
+                        Selected Metrics:
                       </Typography>
                       <Box sx={{ px:1.5, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                        {selectedMetricLabel ? (
-                          <Chip
-                            size="medium"
-                            label={selectedMetricLabel}
-                            onDelete={() => setSelectedMetric('')}
-                            sx={leftPanelTagSx}
-                          />
+                        {selectedMetricLabels.length ? (
+                          selectedMetricLabels.map((metric) => (
+                            <Chip
+                              key={metric.metric}
+                              size="medium"
+                              label={metric.label}
+                              onDelete={() => handleToggleSelectedMetric(metric.metric)}
+                              sx={leftPanelTagSx}
+                            />
+                          ))
                         ) : (
                           <Chip size="medium" label="No metric selected" sx={leftPanelTagSx} />
                         )}
                       </Box>
                     </Box>
 
-                    <RadioGroup
-                      value={selectedMetric}
-                      onChange={(event) => setSelectedMetric(event.target.value)}
-                    >
+                    <Box>
                       {pinnedMetrics.length > 0 && (
                         <Box
                           sx={{
@@ -963,7 +1061,13 @@ function CompareJobsPage() {
                               <FormControlLabel
                                 key={metric.metricId}
                                 value={optionValue}
-                                control={<Radio size="small" />}
+                                control={
+                                  <Checkbox
+                                    size="small"
+                                    checked={selectedMetrics.includes(optionValue)}
+                                    onChange={() => handleToggleSelectedMetric(optionValue)}
+                                  />
+                                }
                                 sx={{
                                   alignItems: 'flex-start',
                                   mx: 0,
@@ -1092,7 +1196,13 @@ function CompareJobsPage() {
                                 <FormControlLabel
                                   key={metric.metricId}
                                   value={optionValue}
-                                  control={<Radio size="small" />}
+                                  control={
+                                    <Checkbox
+                                      size="small"
+                                      checked={selectedMetrics.includes(optionValue)}
+                                      onChange={() => handleToggleSelectedMetric(optionValue)}
+                                    />
+                                  }
                                   sx={{
                                     alignItems: 'flex-start',
                                     display: 'flex',
@@ -1165,7 +1275,7 @@ function CompareJobsPage() {
                           </AccordionDetails>
                         </Accordion>
                       ))}
-                    </RadioGroup>
+                    </Box>
 
                     {!filteredMetricGroups.length && (
                       <Box
@@ -1653,104 +1763,170 @@ function CompareJobsPage() {
 
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Paper elevation={0} sx={{ p: 2, boxShadow: 'none' }}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                bgcolor: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                boxShadow: 'none',
-                mb: 3,
-              }}
-            >
-              <Box
-                sx={{
-                  mb: 1.5,
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                  gap: 2,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <Box sx={{ flex: 1, minWidth: 240 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 700, textAlign: 'center', textTransform:'uppercase', mb: 0.5 }}>
-                    {formatMetricName(selectedMetric)}
-                  </Typography>
-                  <Typography variant="body1" sx={{ textAlign: 'center', color: '#475569' }}>
-                    Comparing {comparedJobs.length} jobs over 1 selected metric
+            <Stack spacing={3}>
+              
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <Typography variant="body1" sx={{ color: '#475569' }}>
+                    Comparing {comparedJobs.length} jobs over {selectedMetrics.length}{' '}
+                    selected {selectedMetrics.length === 1 ? 'metric' : 'metrics'}
                   </Typography>
                 </Box>
+             
 
-                <FormControl size="small" sx={{ minWidth: 260 }}>
-                  <InputLabel>Aggregate data</InputLabel>
-                  <Select
-                    label="Aggregate data"
-                    value={plotAggregation}
-                    onChange={(event) => setPlotAggregation(event.target.value)}
-                  >
-                    <MenuItem value="none">None</MenuItem>
-                    <MenuItem value="sum-gpus">Sum Over GPU(s) (Intra Node)</MenuItem>
-                    <MenuItem value="sum-nodes">Sum Over Node(s)</MenuItem>
-                    <MenuItem value="mean-gpus">Mean Over GPU(s) (Intra Node)</MenuItem>
-                    <MenuItem value="mean-nodes">Mean Over Node(s)</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
+              {metricComparisonSections.length ? (
+                <Stack spacing={2.5}>
+                  {metricComparisonSections.map((section) => {
+                    const isExpanded = expandedMetricSections[section.metric] ?? true;
 
-              <Plot
-                data={chartTraces as any}
-                layout={{
-                  autosize: true,
-                  height: 390,
-                  margin: { l: 70, r: 30, t: 20, b: 50 },
-                  xaxis: { title: 'Relative Time', ticksuffix: '%', gridcolor: '#e2e8f0' },
-                  yaxis: { title: formatMetricName(selectedMetric), gridcolor: '#e2e8f0' },
-                  paper_bgcolor: '#f8fafc',
-                  plot_bgcolor: '#f8fafc',
-                  legend: { x: 1.02, y: 1, xanchor: 'left' },
-                }}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
-            </Paper>
+                    return (
+                      <Paper
+                        key={section.metric}
+                        elevation={0}
+                        sx={{
+                          p: 2,
+                          bgcolor: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          boxShadow: 'none',
+                        }}
+                      >
+                        <Box
+                          sx={{ ...SECTION_TOGGLE_SX, mb: isExpanded ? 2 : 0 }}
+                          onClick={() => handleMetricSectionToggle(section.metric)}
+                        >
+                          <IconButton size="small">
+                            {isExpanded ? <ExpandMoreIcon /> : <KeyboardArrowRightIcon />}
+                          </IconButton>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography
+                              variant="h6"
+                              sx={{ ...SECTION_TITLE_SX}}
+                            >
+                              {section.label}
+                            </Typography>
+                          </Box>
+                        </Box>
 
-            <Typography variant="h6" sx={{ textTransform:'uppercase', fontWeight: 700, mb: 2 }}>
-              {formatMetricName(selectedMetric)} across Jobs
-            </Typography>
+                        <Collapse in={isExpanded}>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              justifyContent: 'flex-end',
+                              mb: 2,
+                            }}
+                          >
+                            <FormControl size="small" sx={{ minWidth: 260 }}>
+                              <InputLabel>Aggregate data</InputLabel>
+                              <Select
+                                label="Aggregate data"
+                                value={plotAggregationByMetric[section.metric] ?? 'none'}
+                                onChange={(event) =>
+                                  handlePlotAggregationChange(section.metric, event.target.value)
+                                }
+                              >
+                                <MenuItem value="none">None</MenuItem>
+                                <MenuItem value="sum-gpus">Sum Over GPU(s) (Intra Node)</MenuItem>
+                                <MenuItem value="sum-nodes">Sum Over Node(s)</MenuItem>
+                                <MenuItem value="mean-gpus">Mean Over GPU(s) (Intra Node)</MenuItem>
+                                <MenuItem value="mean-nodes">Mean Over Node(s)</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Box>
 
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 700 }}>Jobs</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {formatMetricName(selectedMetric)} Mean
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {formatMetricName(selectedMetric)} Avg
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {formatMetricName(selectedMetric)} Min
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {formatMetricName(selectedMetric)} Max
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {summaryRows.map((row) => (
-                    <TableRow key={row.jobId}>
-                      <TableCell>{row.jobId}</TableCell>
-                      <TableCell>{formatValue(row.mean)}</TableCell>
-                      <TableCell>{formatValue(row.avg)}</TableCell>
-                      <TableCell>{formatValue(row.min)}</TableCell>
-                      <TableCell>{formatValue(row.max)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                          <Box
+                            sx={{
+                              p: 2,
+                              bgcolor: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                            }}
+                          >
+                            <Plot
+                              data={section.traces as any}
+                              layout={{
+                                autosize: true,
+                                height: 390,
+                                margin: { l: 70, r: 30, t: 20, b: 50 },
+                                xaxis: {
+                                  title: 'Relative Time',
+                                  ticksuffix: '%',
+                                  gridcolor: '#e2e8f0',
+                                },
+                                yaxis: { title: section.label, gridcolor: '#e2e8f0' },
+                                paper_bgcolor: '#f8fafc',
+                                plot_bgcolor: '#f8fafc',
+                                legend: { x: 1.02, y: 1, xanchor: 'left' },
+                              }}
+                              config={{ responsive: true, displayModeBar: false }}
+                              style={{ width: '100%' }}
+                            />
+                          </Box>
+
+                          <Divider sx={{ mt: 2, mb: 1.5 }} />
+
+                          <TableContainer>
+                            <Table>
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell sx={{ fontWeight: 700 }}>Jobs</TableCell>
+                                  <TableCell sx={{ fontWeight: 700 }}>
+                                    {section.label} Mean
+                                  </TableCell>
+                                  <TableCell sx={{ fontWeight: 700 }}>
+                                    {section.label} Avg
+                                  </TableCell>
+                                  <TableCell sx={{ fontWeight: 700 }}>
+                                    {section.label} Min
+                                  </TableCell>
+                                  <TableCell sx={{ fontWeight: 700 }}>
+                                    {section.label} Max
+                                  </TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {section.summaryRows.map((row) => (
+                                  <TableRow key={row.jobId}>
+                                    <TableCell>{row.jobId}</TableCell>
+                                    <TableCell>{formatValue(row.mean)}</TableCell>
+                                    <TableCell>{formatValue(row.avg)}</TableCell>
+                                    <TableCell>{formatValue(row.min)}</TableCell>
+                                    <TableCell>{formatValue(row.max)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </Collapse>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              ) : (
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 3,
+                    bgcolor: '#f8fafc',
+                    border: '1px dashed #cbd5e1',
+                    boxShadow: 'none',
+                    textAlign: 'center',
+                  }}
+                >
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: COLOR_TOKENS.textPrimary }}>
+                    Select one or more metrics
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#475569', mt: 0.5 }}>
+                    Charts and tables will appear here for every selected metric.
+                  </Typography>
+                </Paper>
+              )}
+            </Stack>
           </Paper>
         </Box>
       </Box>
