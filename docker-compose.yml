@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: 3000
+      SFAPI_CLIENT_ID: ${SFAPI_CLIENT_ID}
+      SFAPI_PRIVATE_KEY_JSON: ${SFAPI_PRIVATE_KEY_JSON}
+      NERSC_USER_ID: ${NERSC_USER_ID:-rjdesh}
+      NERSC_MACHINE_ID: ${NERSC_MACHINE_ID:-perlmutter gpu}
+    ports:
+      - "3000:3000"

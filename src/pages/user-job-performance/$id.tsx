@@ -30,6 +30,7 @@ import { type ReactNode, useState, useEffect, useMemo } from 'react';
 import { useDetailQuery } from '../../hooks/useDetailQuery';
 import { useDataFromSource } from '../../hooks/useDataFromSource';
 import { cleanPath } from '../../utils/queryParams.utils';
+import { getApiUrl } from '../../utils/api';
 import Plot from 'react-plotly.js';
 import WarningIcon from '@mui/icons-material/Warning';
 import InfoIcon from '@mui/icons-material/Info';
@@ -442,7 +443,7 @@ const getLocalDataSourcePath = (dataSource: string) => {
   const leadingSlash = basePath ? '/' : '';
   const basename = cleanPath(leadingSlash + base + basePath);
 
-  return `${basename}/${dataSource}`;
+  return cleanPath(`${basename}/${dataSource}`);
 };
 
 function useJobMetricsExport(jobId: string) {
@@ -1106,7 +1107,7 @@ function useJobGpuMemoryMetrics(
         }
 
         const response = await fetch(
-          `/api/user-job-performance/job-gpu-memory?${queryParams.toString()}`,
+          `${getApiUrl('/user-job-performance/job-gpu-memory')}?${queryParams.toString()}`,
           { signal: abortController.signal }
         );
 

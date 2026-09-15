@@ -1,9 +1,10 @@
-import { createFileRoute, Link as RouterLink } from '@tanstack/react-router';
+import { createFileRoute, Link as RouterLink, useNavigate } from '@tanstack/react-router';
 import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
   Box,
+  Chip,
   Container,
   Paper,
   Typography,
@@ -27,16 +28,19 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import {
-  buildComputePerformanceSnapshot,
   buildRecentJobPerformanceRows,
   findUserJobMetadataById,
-  getJobPerformanceSummary,
-  type ComputeMetricsByJob,
   type IrisJobData,
   type JobGridRow,
   type LegacyUserJobData,
-  type PerformanceSnapshot,
 } from './-controllers/recentJobPerformance.controller';
+import {
+  fetchJobMetricsSummary,
+  type JobMetricsSummary,
+  readLoadedJobMetricsBrowserCache,
+  readLoadedJobsBrowserCache,
+  readSelectedUserBrowserCache,
+} from '../../utils/userJobPerformanceLoadedJobs';
 
 export const Route = createFileRoute('/user-job-performance-alphaver/$id')({
   component: JobPerformanceDetailPage,
@@ -56,10 +60,12 @@ interface JobExportMetricRow {
   timestamp?: string | number;
   hostname?: string;
   gpu_id?: number | string;
+  nersc_ldms_dcgm_cpu_utilization?: number | string | null;
   nersc_ldms_dcgm_gr_engine_active?: number | string | null;
   nersc_ldms_dcgm_gpu_utilization?: number | string | null;
+  nersc_ldms_cpu_utilization?: number | string | null;
   nersc_ldms_dcgm_fb_used?: number | string | null;
-  [key: string]: number | string | null | undefined;
+  [key: string]: unknown;
 }
 
 interface JobMetricsExport {
@@ -76,17 +82,6 @@ type JobMetadata = Partial<LegacyUserJobData & IrisJobData> & {
   QOS?: string;
 };
 
-interface PowerMetricRow {
-  [key: string]: number | string | null | undefined;
-}
-
-interface PowerConsumptionSummary {
-  nodePower: number | null;
-  cpuPower: number | null;
-  gpuPower: number | null;
-  memoryPower: number | null;
-}
-
 const COLOR_TOKENS = {
   pageBg: '#ffffff',
   textPrimary: '#111827',
@@ -100,6 +95,17 @@ const COLOR_TOKENS = {
   network: '#8b5cf6',
   link: '#2563eb',
 } as const;
+
+const NODE_TRACE_COLORS = [
+  '#2563eb',
+  '#16a34a',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ec4899',
+  '#0f766e',
+  '#dc2626',
+  '#64748b',
+];
 
 const TITLE_SX = {
   fontWeight: 700,
@@ -129,20 +135,6 @@ const ACTION_LINK_SX = {
 
 const SIDE_PANEL_LABEL_SX = { color: '#475569', fontWeight: 700 };
 const SIDE_PANEL_VALUE_SX = { color: '#111827', fontWeight: 500 };
-
-const PERFORMANCE_SNAPSHOT_ROWS = [
-  { key: 'gpuUtilization', label: 'Avg. GPU utilization', unit: '%' },
-  { key: 'cpuUtilization', label: 'Avg. CPU utilization', unit: '%' },
-  { key: 'gpuMemoryBandwidth', label: 'Avg. GPU Memory Bandwidth', unit: '%' },
-  { key: 'cpuMemoryBandwidth', label: 'Avg. CPU Memory Bandwidth', unit: '%' },
-] as const;
-
-const POWER_CONSUMPTION_ROWS = [
-  { key: 'nodePower', label: 'Avg. Node Power', unit: 'W' },
-  { key: 'cpuPower', label: 'Avg. CPU Power', unit: 'W' },
-  { key: 'gpuPower', label: 'Avg. GPU Power', unit: 'W' },
-  { key: 'memoryPower', label: 'Avg. Memory Power', unit: 'W' },
-] as const;
 
 const detailDateTimeFormatter = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -187,90 +179,101 @@ const formatNumber = (value: number | null | undefined, fractionDigits = 0) => {
   });
 };
 
-const formatSnapshotValue = (value: number | null, unit: string) => {
-  if (value === null || !Number.isFinite(value)) {
-    return 'N/A';
+const toExecutionTimeMs = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return 0;
   }
 
-  const formattedValue = value.toLocaleString(undefined, {
+  if (value > 1_000_000_000_000) {
+    return value;
+  }
+
+  return value * 1000;
+};
+
+const formatExecutionTime = (milliseconds: number) => {
+  if (!Number.isFinite(milliseconds)) {
+    return '0 sec';
+  }
+
+  if (milliseconds < 1000) {
+    return `${Math.round(milliseconds).toLocaleString()} ms`;
+  }
+
+  if (milliseconds < 60_000) {
+    return `${(milliseconds / 1000).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+    })} sec`;
+  }
+
+  if (milliseconds < 3_600_000) {
+    return `${(milliseconds / 60_000).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+    })} min`;
+  }
+
+  return `${(milliseconds / 3_600_000).toLocaleString(undefined, {
     maximumFractionDigits: 1,
-  });
-
-  return unit === '%' ? `${formattedValue}%` : `${formattedValue} ${unit}`;
+  })} hr`;
 };
 
-const getAverageValue = (values: number[]) => {
-  if (!values.length) {
-    return null;
-  }
-
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-};
-
-const getAverageFromRows = (
-  rows: PowerMetricRow[] | undefined,
-  metricKey: string
-) => getAverageValue(
-  (rows ?? [])
-    .map((row) => row[metricKey])
-    .filter((value): value is number => (
-      typeof value === 'number' && Number.isFinite(value)
-    ))
-);
-
-const getAverageFromMetricAliases = (
-  rows: MetricsByJob[string] | undefined,
-  aliases: string[]
-) => {
-  for (const alias of aliases) {
-    const averageValue = getAverageValue(
-      (rows ?? [])
-        .map((row) => row[alias])
-        .filter((value): value is number => (
-          typeof value === 'number' && Number.isFinite(value)
-        ))
-    );
-
-    if (averageValue !== null) {
-      return averageValue;
-    }
-  }
-
-  return null;
-};
-
-const getPowerConsumptionSummary = ({
-  jobId,
-  metricsByJob,
-  nodePowerRows,
-  cpuPowerRows,
-  gpuPowerRows,
-  memoryPowerRows,
-}: {
-  jobId: string;
-  metricsByJob: MetricsByJob | undefined;
-  nodePowerRows: PowerMetricRow[] | undefined;
-  cpuPowerRows: PowerMetricRow[] | undefined;
-  gpuPowerRows: PowerMetricRow[] | undefined;
-  memoryPowerRows: PowerMetricRow[] | undefined;
-}): PowerConsumptionSummary => {
-  const metricRows = metricsByJob?.[jobId];
+const buildExecutionTimeTicks = (traces: Array<{ x?: unknown }>) => {
+  const xValues = traces.flatMap((trace) => (
+    Array.isArray(trace.x) ? trace.x : []
+  )).map(Number).filter(Number.isFinite);
+  const maxTime = Math.max(0, ...xValues);
+  const tickValues = [0, 0.25, 0.5, 0.75, 1].map((fraction) => maxTime * fraction);
 
   return {
-    nodePower: getAverageFromMetricAliases(metricRows, [
-      'nersc_ldms_node_power',
-    ]) ?? getAverageFromRows(nodePowerRows, 'node_power'),
-    cpuPower: getAverageFromMetricAliases(metricRows, [
-      'nersc_ldms_cpu_power',
-    ]) ?? getAverageFromRows(cpuPowerRows, 'cpu_power'),
-    gpuPower: getAverageFromMetricAliases(metricRows, [
-      'nersc_ldms_dcgm_power_usage',
-      'nersc_ldms_gpu_power',
-    ]) ?? getAverageFromRows(gpuPowerRows, 'gpu_power'),
-    memoryPower: getAverageFromMetricAliases(metricRows, [
-      'nersc_ldms_memory_power',
-    ]) ?? getAverageFromRows(memoryPowerRows, 'memory_power'),
+    range: [0, Math.max(1, maxTime)],
+    tickText: tickValues.map(formatExecutionTime),
+    tickValues,
   };
+};
+
+const getJobStatusTone = (status: string) => {
+  const normalized = status.toLowerCase();
+
+  if (normalized.includes('complete')) {
+    return {
+      color: '#166534',
+      backgroundColor: '#dcfce7',
+      borderColor: '#86efac',
+    };
+  }
+  if (normalized.includes('running')) {
+    return {
+      color: '#1d4ed8',
+      backgroundColor: '#dbeafe',
+      borderColor: '#93c5fd',
+    };
+  }
+  if (normalized.includes('wait')) {
+    return {
+      color: '#475569',
+      backgroundColor: '#e2e8f0',
+      borderColor: '#cbd5e1',
+    };
+  }
+
+  return {
+    color: '#991b1b',
+    backgroundColor: '#fee2e2',
+    borderColor: '#fca5a5',
+  };
+};
+
+const formatJobStatusLabel = (status: string) => {
+  const normalized = status.trim();
+
+  if (!normalized) {
+    return 'Unknown';
+  }
+
+  return normalized
+    .replace(/[_-]+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 };
 
 const getLocalDataSourcePath = (dataSource: string) => {
@@ -279,7 +282,7 @@ const getLocalDataSourcePath = (dataSource: string) => {
   const leadingSlash = basePath ? '/' : '';
   const basename = cleanPath(leadingSlash + base + basePath);
 
-  return `${basename}/${dataSource}`;
+  return cleanPath(`${basename}/${dataSource}`);
 };
 
 function useJobMetricsExport(jobId: string) {
@@ -338,66 +341,6 @@ function useJobMetricsExport(jobId: string) {
 
 const getJobMetricsExportRows = (source?: JobMetricsCacheSource) =>
   Array.isArray(source) ? source : source?.data ?? [];
-
-function PerformanceSummaryMetrics({
-  snapshot,
-  powerConsumption,
-}: {
-  snapshot: PerformanceSnapshot;
-  powerConsumption: PowerConsumptionSummary;
-}) {
-  const metrics = [
-    ...PERFORMANCE_SNAPSHOT_ROWS.map((row) => ({
-      label: row.label,
-      value: formatSnapshotValue(snapshot[row.key].avg, row.unit),
-    })),
-    ...POWER_CONSUMPTION_ROWS.map((row) => ({
-      label: row.label,
-      value: formatSnapshotValue(powerConsumption[row.key], row.unit),
-    })),
-  ];
-  const midpoint = Math.ceil(metrics.length / 2);
-  const columns = [metrics.slice(0, midpoint), metrics.slice(midpoint)];
-
-  return (
-    <Grid container columnSpacing={{ xs: 1.5, md: 8 }} rowSpacing={1.5}>
-      {columns.map((column, columnIndex) => (
-        <Grid item xs={12} md={6} key={`performance-summary-column-${columnIndex}`}>
-          <Stack spacing={1.25} divider={<Divider />}>
-            {column.map((item) => (
-              <Box
-                key={item.label}
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: {
-                    xs: 'minmax(120px, max-content) minmax(0, 1fr)',
-                    sm: 'minmax(190px, max-content) minmax(0, 1fr)',
-                  },
-                  columnGap: 2,
-                  alignItems: 'flex-start',
-                }}
-              >
-                <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>
-                  {item.label}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    ...SIDE_PANEL_VALUE_SX,
-                    fontVariantNumeric: 'tabular-nums',
-                    overflowWrap: 'anywhere',
-                  }}
-                >
-                  {item.value}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
-        </Grid>
-      ))}
-    </Grid>
-  );
-}
 
 const formatDurationFromSeconds = (seconds: unknown) => {
   const numericSeconds = toFiniteNumber(seconds);
@@ -458,19 +401,29 @@ const buildJobDetailItems = (
     toFiniteNumber(
       metadata?.['Node hours charged'] ?? metadata?.['Charged Node Hours']
     );
+  const energyConsumed =
+    selectedJob?.energyConsumed ??
+    toFiniteNumber(metadata?.['Energy consumed']);
+  const jobStatus =
+    selectedJob?.jobStatus ??
+    metadata?.['Job Status'] ??
+    metadata?.State ??
+    'N/A';
 
   return [
     { label: 'Submit time', value: formatJobDateTime(submitTime) },
+    { label: 'Start time', value: formatJobDateTime(startTime) },
     { label: 'End time', value: formatJobDateTime(endTime) },
     { label: 'Wait time', value: selectedJob?.waitTime ?? 'N/A' },
     { label: 'Run time', value: duration },
     {
       label: 'Job status',
-      value:
-        selectedJob?.jobStatus ??
-        metadata?.['Job Status'] ??
-        metadata?.State ??
-        'N/A',
+      value: jobStatus,
+      variant: 'status' as const,
+    },
+    {
+      label: 'Energy consumed',
+      value: energyConsumed === null ? 'N/A' : `${formatNumber(energyConsumed)} J`,
     },
     {
       label: 'Project',
@@ -491,6 +444,7 @@ const buildJobDetailItems = (
  */
 function JobPerformanceDetailPage() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
 
   // Define query for this page and fetch data item
   const { data: detailData } = useDetailQuery({
@@ -509,35 +463,45 @@ function JobPerformanceDetailPage() {
   const metricsByJob = useDataFromSource(
     'data/user-job-performance/metrics-data.json'
   ) as MetricsByJob | undefined;
-  const nodePowerRows = useDataFromSource(
-    'data/user-job-performance/pmt-export-node-power-51567294.json'
-  ) as PowerMetricRow[] | undefined;
-  const cpuPowerRows = useDataFromSource(
-    'data/user-job-performance/pmt-export-cpu-power-51567294 (1).json'
-  ) as PowerMetricRow[] | undefined;
-  const gpuPowerRows = useDataFromSource(
-    'data/user-job-performance/pmt-export-gpu-power-51567294.json'
-  ) as PowerMetricRow[] | undefined;
-  const memoryPowerRows = useDataFromSource(
-    'data/user-job-performance/pmt-export-mem-power-51567294 (1).json'
-  ) as PowerMetricRow[] | undefined;
+  const loadedJobCacheEntries = useMemo(() => readLoadedJobsBrowserCache(), []);
+  const [loadedJobMetricsCacheEntries, setLoadedJobMetricsCacheEntries] = useState(
+    () => readLoadedJobMetricsBrowserCache()
+  );
+  const [jobMetricsSummaryStatus, setJobMetricsSummaryStatus] = useState<
+    'idle' | 'loading' | 'success' | 'failed'
+  >('idle');
+  const [jobMetricsSummaryError, setJobMetricsSummaryError] = useState<string | null>(null);
   const jobRows = useMemo(
     () => buildRecentJobPerformanceRows({
       legacyJobs: userJobsData,
       irisJobs: irisJobsData,
+      loadedJobs: loadedJobCacheEntries.map((entry) => entry.job),
       metricsByJob,
     }),
-    [irisJobsData, metricsByJob, userJobsData]
+    [irisJobsData, loadedJobCacheEntries, metricsByJob, userJobsData]
   );
   const selectedJob = useMemo(
     () => jobRows.find((job) => job.id === id) ?? null,
     [id, jobRows]
   );
+  const selectedJobMetricsSummary = useMemo(
+    () => loadedJobMetricsCacheEntries.find((entry) => entry.jobId === id)?.summary ?? null,
+    [id, loadedJobMetricsCacheEntries]
+  );
+  const selectedLoadedJobCacheEntry = useMemo(
+    () => loadedJobCacheEntries.find((entry) => entry.jobId === id) ?? null,
+    [id, loadedJobCacheEntries]
+  );
   const metadata = useMemo(
     () =>
       (detailData as JobMetadata | undefined) ??
-      findUserJobMetadataById(id, userJobsData, irisJobsData),
-    [detailData, id, irisJobsData, userJobsData]
+      findUserJobMetadataById(
+        id,
+        userJobsData,
+        irisJobsData,
+        loadedJobCacheEntries.map((entry) => entry.job)
+      ),
+    [detailData, id, irisJobsData, loadedJobCacheEntries, userJobsData]
   );
   const pageJobId = selectedJob?.jobId ?? metadata?.['Job ID'] ?? id;
   const pageProject = selectedJob?.projectId ?? metadata?.Project ?? 'N/A';
@@ -553,62 +517,72 @@ function JobPerformanceDetailPage() {
       jobDetailItems.slice(midpoint),
     ];
   }, [jobDetailItems]);
+  const selectedJobUsesRealData = selectedJob?.dataSource === 'real';
   const jobMetricsExport = useJobMetricsExport(id);
-  const performanceSummary = useMemo(
-    () => {
-      if (!selectedJob) {
-        return null;
-      }
-
-      return getJobPerformanceSummary(
-        selectedJob,
-        selectedJob.gpuUtilizationStatus ? undefined : metricsByJob
-      );
-    },
-    [metricsByJob, selectedJob]
-  );
-  const computeMetricsByJob = useMemo<ComputeMetricsByJob | undefined>(
-    () => (selectedJob && jobMetricsExport
-      ? { [selectedJob.jobId]: jobMetricsExport }
-      : undefined),
-    [jobMetricsExport, selectedJob]
-  );
-  const computePerformanceSnapshot = useMemo(
-    () => (selectedJob && performanceSummary
-      ? buildComputePerformanceSnapshot({
-        jobId: selectedJob.jobId,
-        baseSnapshot: performanceSummary.snapshot,
-        computeMetricsByJob,
-      })
-      : null),
-    [computeMetricsByJob, performanceSummary, selectedJob]
-  );
-  const powerConsumptionSummary = useMemo(
-    () => (selectedJob
-      ? getPowerConsumptionSummary({
-        jobId: selectedJob.jobId,
-        metricsByJob,
-        nodePowerRows,
-        cpuPowerRows,
-        gpuPowerRows,
-        memoryPowerRows,
-      })
-      : null),
-    [
-      cpuPowerRows,
-      gpuPowerRows,
-      memoryPowerRows,
-      metricsByJob,
-      nodePowerRows,
-      selectedJob,
-    ]
-  );
-  const utilizationChartData = buildUtilizationChartData(
+  const gpuUtilizationChartData = buildNodeUtilizationChartData(
+    'gpu',
     metricsByJob,
     id,
-    jobMetricsExport
+    jobMetricsExport,
+    selectedJobMetricsSummary
   );
-  const powerData = generatePowerData();
+  const powerData = buildCpuPowerChartData(selectedJobMetricsSummary, {
+    allowFallback: !selectedJobUsesRealData,
+  });
+  const isJobMetricsSummaryLoading =
+    selectedJobUsesRealData && !selectedJobMetricsSummary && jobMetricsSummaryStatus !== 'failed';
+  const cpuPowerErrorMessage = jobMetricsSummaryError ?? selectedJobMetricsSummary?.error ?? null;
+  const cpuPowerStatusMessage = selectedJobUsesRealData
+    ? cpuPowerErrorMessage ??
+      (!isJobMetricsSummaryLoading && !powerData.length
+        ? 'No CPU power samples were returned for this loaded job.'
+        : null)
+    : null;
+  const cpuPowerPlotData = cpuPowerStatusMessage ? [] : powerData;
+  const gpuExecutionTimeTicks = buildExecutionTimeTicks(gpuUtilizationChartData);
+  const powerExecutionTimeTicks = buildExecutionTimeTicks(cpuPowerPlotData);
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!selectedJob?.jobId || selectedJob.dataSource !== 'real' || selectedJobMetricsSummary) {
+      return () => {
+        isActive = false;
+      };
+    }
+
+    setJobMetricsSummaryStatus('loading');
+    setJobMetricsSummaryError(null);
+    fetchJobMetricsSummary(selectedJob.jobId, {
+      machineId: typeof selectedLoadedJobCacheEntry?.job.machine === 'string'
+        ? selectedLoadedJobCacheEntry.job.machine
+        : undefined,
+      userId: readSelectedUserBrowserCache() || (
+        typeof selectedLoadedJobCacheEntry?.job.user === 'string'
+          ? selectedLoadedJobCacheEntry.job.user
+          : undefined
+      ),
+    })
+      .then(() => {
+        if (!isActive) {
+          return;
+        }
+
+        setLoadedJobMetricsCacheEntries(readLoadedJobMetricsBrowserCache());
+        setJobMetricsSummaryError(null);
+        setJobMetricsSummaryStatus('success');
+      })
+      .catch((error: unknown) => {
+        if (isActive) {
+          setJobMetricsSummaryError(error instanceof Error ? error.message : String(error));
+          setJobMetricsSummaryStatus('failed');
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [selectedJob, selectedJobMetricsSummary, selectedLoadedJobCacheEntry]);
 
   if (!selectedJob && !metadata) {
     return (
@@ -724,15 +698,33 @@ function JobPerformanceDetailPage() {
                           <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>
                             {item.label}
                           </Typography>
-                          <Typography
-                            variant="body2"
-                            sx={{
-                              ...SIDE_PANEL_VALUE_SX,
-                              overflowWrap: 'anywhere',
-                            }}
-                          >
-                            {item.value}
-                          </Typography>
+                          {item.variant === 'status' ? (
+                            <Chip
+                              label={formatJobStatusLabel(String(item.value))}
+                              size="small"
+                              sx={{
+                                justifySelf: 'start',
+                                height: 24,
+                                fontWeight: 500,
+                                color: getJobStatusTone(String(item.value)).color,
+                                bgcolor: getJobStatusTone(String(item.value)).backgroundColor,
+                                border: `1px solid ${getJobStatusTone(String(item.value)).borderColor}`,
+                                '& .MuiChip-label': {
+                                  px: 1,
+                                },
+                              }}
+                            />
+                          ) : (
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                ...SIDE_PANEL_VALUE_SX,
+                                overflowWrap: 'anywhere',
+                              }}
+                            >
+                              {item.value}
+                            </Typography>
+                          )}
                         </Box>
                       ))}
                     </Stack>
@@ -764,34 +756,47 @@ function JobPerformanceDetailPage() {
                   justifyContent: 'flex-end',
                   gap: 1,
                   minHeight: 'auto',
-                  '& .MuiAccordionSummary-content': { my: 0 },
+                  '& .MuiAccordionSummary-content': { my: 0, flex: 1 },
                   '& .MuiAccordionSummary-expandIconWrapper': {
                     mr: 0,
                   },
                 }}
               >
-                <Typography variant="h6" sx={SECTION_TITLE_SX}>
-                  Performance Summary
-                </Typography>
+                <Box sx={{ alignItems: 'center', display: 'flex', gap: 2, justifyContent: 'space-between', width: '100%' }}>
+                  <Typography variant="h6" sx={SECTION_TITLE_SX}>
+                    Performance Summary
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    endIcon={<ArrowForwardIcon />}
+                    size="medium"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      navigate({
+                        to: '/user-job-performance-alphaver/compare',
+                        search: { jobIds: String(pageJobId), source: 'job-details' },
+                      });
+                    }}
+                    onFocus={(event) => event.stopPropagation()}
+                    sx={{
+                      textTransform: 'none',
+                      bgcolor: '#1a2f5a',
+                      color: '#ffffff',
+                      flexShrink: 0,
+                      '&:hover': {
+                        bgcolor: '#132341',
+                        color: '#ffffff',
+                      },
+                    }}
+                  >
+                    View Performance Details
+                  </Button>
+                </Box>
               </AccordionSummary>
               <AccordionDetails
                 id="performance-summary-content"
                 sx={{ px: 4, pt: 0, pb: 4 }}
               >
-                <Typography variant="subtitle1" sx={{ ...SUBSECTION_TITLE_SX, mb: 2 }}>
-                  Metrics
-                </Typography>
-                {performanceSummary && computePerformanceSnapshot && powerConsumptionSummary ? (
-                  <PerformanceSummaryMetrics
-                    snapshot={computePerformanceSnapshot}
-                    powerConsumption={powerConsumptionSummary}
-                  />
-                ) : (
-                  <Typography variant="body2" sx={{ color: COLOR_TOKENS.textSecondary }}>
-                    Loading performance summary...
-                  </Typography>
-                )}
-                <Box sx={{ mt: 5 }} />
                 <Typography
                   id="insights"
                   variant="subtitle1"
@@ -906,20 +911,26 @@ function JobPerformanceDetailPage() {
                       }}
                     >
                       <Typography variant="subtitle2" sx={{ ...SECTION_TITLE_SX, mb: 2 }}>
-                        CPU & GPU Utilization
+                        GPU Utilization by Node
                       </Typography>
                       <Plot
-                        data={utilizationChartData as any}
+                        data={gpuUtilizationChartData as any}
                         layout={{
                           autosize: true,
                           height: 320,
                           margin: { l: 55, r: 20, t: 20, b: 50 },
                           xaxis: {
-                            title: 'Floored Relative Time (s)',
+                            title: 'Execution Time',
+                            range: gpuExecutionTimeTicks.range,
+                            tickvals: gpuExecutionTimeTicks.tickValues,
+                            ticktext: gpuExecutionTimeTicks.tickText,
                           },
                           yaxis: {
                             title: 'Utilization %',
+                            autorange: false,
                             range: [0, 100],
+                            ticksuffix: '%',
+                            tickvals: [0, 25, 50, 75, 100],
                           },
                           legend: {
                             orientation: 'h',
@@ -945,32 +956,27 @@ function JobPerformanceDetailPage() {
                       }}
                     >
                       <Typography variant="subtitle2" sx={{ ...SECTION_TITLE_SX, mb: 2 }}>
-                        Power
+                        CPU Power by Node
                       </Typography>
+                      {cpuPowerStatusMessage && (
+                        <Alert severity="error" sx={{ mb: 2 }}>
+                          {cpuPowerStatusMessage}
+                        </Alert>
+                      )}
                       <Plot
-                        data={powerData}
+                        data={cpuPowerPlotData}
                         layout={{
                           autosize: true,
                           height: 320,
                           margin: { l: 55, r: 20, t: 20, b: 50 },
                           xaxis: {
-                            title: 'Relative Time',
+                            title: 'Execution Time',
+                            range: powerExecutionTimeTicks.range,
                             showline: true,
                             showticklabels: true,
                             ticks: 'outside',
-                            tickvals: [0, 12.5, 25, 37, 47, 58, 68, 78, 88, 100],
-                            ticktext: [
-                              '0%',
-                              '12%',
-                              '25%',
-                              '37%',
-                              '47%',
-                              '58%',
-                              '68%',
-                              '78%',
-                              '88%',
-                              '100%',
-                            ],
+                            tickvals: powerExecutionTimeTicks.tickValues,
+                            ticktext: powerExecutionTimeTicks.tickText,
                           },
                           yaxis: {
                             title: 'Power (W)',
@@ -989,26 +995,6 @@ function JobPerformanceDetailPage() {
                     </Box>
                   </Grid>
                 </Grid>
-                <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 3 }}>
-                  <Button
-                    component={RouterLink}
-                    to="/user-job-performance-alphaver/compare"
-                    variant="contained"
-                    endIcon={<ArrowForwardIcon />}
-                    size="medium"
-                    sx={{
-                      textTransform: 'none',
-                      bgcolor: '#1a2f5a',
-                      color: '#ffffff',
-                      '&:hover': {
-                        bgcolor: '#132341',
-                        color: '#ffffff',
-                      },
-                    }}
-                  >
-                    View Performance Report
-                  </Button>
-                </Box>
               </AccordionDetails>
             </Accordion>
             <Divider sx={{ mb: 3 }} />
@@ -1022,7 +1008,7 @@ function JobPerformanceDetailPage() {
 
 const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
 
-const parseExportTimestampMs = (timestamp?: string | number | null) => {
+const parseExportTimestampMs = (timestamp?: unknown) => {
   if (timestamp === undefined || timestamp === null || timestamp === '') {
     return null;
   }
@@ -1033,6 +1019,10 @@ const parseExportTimestampMs = (timestamp?: string | number | null) => {
     }
 
     return timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000;
+  }
+
+  if (typeof timestamp !== 'string') {
+    return null;
   }
 
   const numericTimestamp = Number(timestamp);
@@ -1067,129 +1057,348 @@ const buildFallbackCpuUtilizationSeries = (timeAxis: number[]) => (
   )
 );
 
-function buildUtilizationChartData(
+const normalizeFlooredRelativeTimeAxis = (timeAxis: number[]) => {
+  if (timeAxis.length <= 1) {
+    return timeAxis.map(() => 0);
+  }
+
+  const finiteValues = timeAxis.filter((value) => Number.isFinite(value));
+
+  if (!finiteValues.length) {
+    return timeAxis.map(() => 0);
+  }
+
+  const elapsedTimeValues = finiteValues.map(toExecutionTimeMs);
+  const minTime = Math.min(...elapsedTimeValues);
+  const maxTime = Math.max(...elapsedTimeValues);
+  const span = maxTime - minTime;
+
+  if (!Number.isFinite(span) || span <= 0) {
+    const denominator = Math.max(1, timeAxis.length - 1);
+
+    return timeAxis.map((_, index) => (index / denominator) * 1000);
+  }
+
+  return timeAxis.map((time) => Math.max(0, toExecutionTimeMs(time) - minTime));
+};
+
+const normalizeFlooredRelativeTimeValues = (timeAxis: number[]) => {
+  const normalizedAxis = normalizeFlooredRelativeTimeAxis(timeAxis);
+
+  return timeAxis.map((time, index) => [time, normalizedAxis[index]] as const);
+};
+
+const getNodeLabel = (row: Record<string, unknown>) => {
+  const rawNode =
+    row.hostname ??
+    row.Hostname ??
+    row.node ??
+    row.nid ??
+    row.host;
+
+  return typeof rawNode === 'string' && rawNode.trim()
+    ? rawNode.trim()
+    : 'Node aggregate';
+};
+
+const getNormalizedUtilizationMetricValue = (
+  row: Record<string, unknown>,
+  aliases: string[]
+) => {
+  for (const alias of aliases) {
+    const value = normalizeUtilizationValue(row[alias]);
+
+    if (value !== null) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const getMetricValue = (
+  row: Record<string, unknown>,
+  aliases: string[],
+  scale = 1
+) => {
+  for (const alias of aliases) {
+    const value = toFiniteNumber(row[alias]);
+
+    if (value !== null) {
+      return value * scale;
+    }
+  }
+
+  return null;
+};
+
+const buildNodeMetricTracesFromPoints = (
+  points: Array<{ nodeLabel: string; time: number; value: number }>,
+  metricLabel: string,
+  options: { color?: string; unit?: string; valueFormat?: string; valueSuffix?: string } = {}
+) => {
+  if (!points.length) {
+    return [];
+  }
+
+  const normalizedTimeByRawTime = new Map(
+    normalizeFlooredRelativeTimeValues(points.map((point) => point.time))
+  );
+  const pointsByNode = points.reduce<Record<string, Array<{ x: number; y: number }>>>(
+    (groups, point) => {
+    const x = normalizedTimeByRawTime.get(point.time) ?? 0;
+
+      return {
+        ...groups,
+        [point.nodeLabel]: [
+          ...(groups[point.nodeLabel] ?? []),
+          { x, y: point.value },
+        ],
+      };
+    },
+    {}
+  );
+
+  return Object.entries(pointsByNode).map(([nodeLabel, nodePoints], index) => ({
+    x: nodePoints.map((point) => point.x),
+    y: nodePoints.map((point) => point.y),
+    type: 'scatter' as const,
+    mode: 'lines' as const,
+    name: nodeLabel,
+    showlegend: true,
+    line: {
+      color: options.color ?? NODE_TRACE_COLORS[index % NODE_TRACE_COLORS.length],
+      width: 2,
+    },
+    customdata: nodePoints.map((point) => formatExecutionTime(point.x)),
+    hovertemplate: `- %{fullData.name}, ${metricLabel}: %{y:${options.valueFormat ?? '.1f'}}${options.valueSuffix ?? ''}${options.unit ? ` ${options.unit}` : ''}<br>Execution Time: %{customdata}<extra></extra>`,
+  }));
+};
+
+const buildNodeMetricTracesFromRows = (
+  rows: Record<string, unknown>[],
+  aliases: string[],
+  metricLabel: string,
+  options: { scale?: number; unit?: string; valueSuffix?: string } = {}
+) => {
+  const groupedPoints = rows.reduce<
+    Record<string, Array<{ nodeLabel: string; timestampMs: number; value: number }>>
+  >((groups, row) => {
+    const timestampMs = parseExportTimestampMs(row.timestamp);
+    const value = getMetricValue(row, aliases, options.scale);
+
+    if (timestampMs === null || value === null) {
+      return groups;
+    }
+
+    const nodeLabel = getNodeLabel(row);
+    const pointKey = `${nodeLabel}-${timestampMs}`;
+
+    return {
+      ...groups,
+      [pointKey]: [
+        ...(groups[pointKey] ?? []),
+        { nodeLabel, timestampMs, value },
+      ],
+    };
+  }, {});
+  const averagedPoints = Object.values(groupedPoints).map((rowsAtTime) => ({
+    nodeLabel: rowsAtTime[0].nodeLabel,
+    time: rowsAtTime[0].timestampMs,
+    value: rowsAtTime.reduce((sum, row) => sum + row.value, 0) / rowsAtTime.length,
+  }));
+
+  return buildNodeMetricTracesFromPoints(averagedPoints, metricLabel, {
+    unit: options.unit,
+    valueSuffix: options.valueSuffix,
+  });
+};
+
+const buildNodeUtilizationTracesFromRows = (
+  rows: Record<string, unknown>[],
+  aliases: string[],
+  metricLabel: string
+) => {
+  const groupedPoints = rows.reduce<
+    Record<string, Array<{ nodeLabel: string; timestampMs: number; value: number }>>
+  >((groups, row) => {
+    const timestampMs = parseExportTimestampMs(row.timestamp);
+    const value = getNormalizedUtilizationMetricValue(row, aliases);
+
+    if (timestampMs === null || value === null) {
+      return groups;
+    }
+
+    const nodeLabel = getNodeLabel(row);
+    const pointKey = `${nodeLabel}-${timestampMs}`;
+
+    return {
+      ...groups,
+      [pointKey]: [
+        ...(groups[pointKey] ?? []),
+        { nodeLabel, timestampMs, value },
+      ],
+    };
+  }, {});
+  const averagedPoints = Object.values(groupedPoints).map((rowsAtTime) => ({
+    nodeLabel: rowsAtTime[0].nodeLabel,
+    time: rowsAtTime[0].timestampMs,
+    value: rowsAtTime.reduce((sum, row) => sum + row.value, 0) / rowsAtTime.length,
+  }));
+
+  return buildNodeMetricTracesFromPoints(averagedPoints, metricLabel, {
+    valueFormat: metricLabel === 'GPU utilization' ? '.3f' : '.1f',
+    valueSuffix: '%',
+  });
+};
+
+function buildNodeUtilizationChartData(
+  metric: 'cpu' | 'gpu',
   metricsByJob: MetricsByJob | undefined,
   jobId: string,
-  jobMetricsExport?: JobMetricsExport
+  jobMetricsExport?: JobMetricsExport,
+  fetchedMetricsSummary?: JobMetricsSummary | null
 ) {
-  const exportRows = getJobMetricsExportRows(jobMetricsExport)
-    .map((row) => {
-      const timestampMs = parseExportTimestampMs(row.timestamp);
-      const gpuValue = normalizeUtilizationValue(
-        row.nersc_ldms_dcgm_gr_engine_active ??
-          row.nersc_ldms_dcgm_gpu_utilization
-      );
+  const metricLabel = metric === 'cpu' ? 'CPU utilization' : 'GPU utilization';
+  const metricAliases = metric === 'cpu'
+    ? ['nersc_ldms_dcgm_cpu_utilization', 'nersc_ldms_cpu_utilization']
+    : ['nersc_ldms_dcgm_gr_engine_active', 'nersc_ldms_dcgm_gpu_utilization'];
+  const cachedGpuSeries = metric === 'gpu'
+    ? fetchedMetricsSummary?.series?.gpuUtilization ?? []
+    : [];
+  const cachedRows = metric === 'gpu'
+    ? fetchedMetricsSummary?.records?.gpuUtilization ?? []
+    : [];
 
-      return timestampMs === null || gpuValue === null
-        ? null
-        : { timestampMs, gpuValue };
-    })
-    .filter((row): row is { timestampMs: number; gpuValue: number } => row !== null)
-    .sort((left, right) => left.timestampMs - right.timestampMs);
+  const cachedRecordTraces = buildNodeUtilizationTracesFromRows(
+    cachedRows,
+    metricAliases,
+    metricLabel
+  );
 
-  if (exportRows.length) {
-    const firstTimestampMs = exportRows[0].timestampMs;
-    const timeAxis = exportRows.map((row) => (row.timestampMs - firstTimestampMs) / 1000);
+  if (cachedRecordTraces.length) {
+    return cachedRecordTraces;
+  }
+
+  if (cachedGpuSeries.length) {
+    const timeAxis = normalizeFlooredRelativeTimeAxis(
+      cachedGpuSeries.map((point) => point.x)
+    );
 
     return [
       {
         x: timeAxis,
-        y: buildFallbackCpuUtilizationSeries(timeAxis),
+        y: cachedGpuSeries.map((point) => point.y),
         type: 'scatter' as const,
         mode: 'lines' as const,
-        name: 'CPU',
-        line: { color: COLOR_TOKENS.cpu, width: 2 },
-      },
-      {
-        x: timeAxis,
-        y: exportRows.map((row) => row.gpuValue),
-        type: 'scatter' as const,
-        mode: 'lines+markers' as const,
-        name: 'GPU',
+        name: 'Node aggregate',
+        showlegend: true,
         line: { color: COLOR_TOKENS.gpu, width: 2 },
-        marker: { size: 5 },
+        customdata: timeAxis.map(formatExecutionTime),
+        hovertemplate: '- %{fullData.name}, GPU utilization: %{y:.3f}%<br>Execution Time: %{customdata}<extra></extra>',
       },
     ];
   }
 
-  const metricRows = [...(metricsByJob?.[jobId] ?? [])].sort(
-    (left, right) => left['Floored Relative Time'] - right['Floored Relative Time']
+  const exportTraces = buildNodeUtilizationTracesFromRows(
+    getJobMetricsExportRows(jobMetricsExport),
+    metricAliases,
+    metricLabel
   );
-  const timeAxis = metricRows.length
-    ? metricRows.map((row) => row['Floored Relative Time'])
-    : Array.from({ length: 50 }, (_, index) => index * 2);
-  const cpuSeries = metricRows.map((row) =>
-    normalizeUtilizationValue(
-      row.nersc_ldms_dcgm_cpu_utilization ?? row.nersc_ldms_cpu_utilization
+
+  if (exportTraces.length) {
+    return exportTraces;
+  }
+
+  const metricRows = [...(metricsByJob?.[jobId] ?? [])].sort(
+    (left, right) => (
+      Number(left['Floored Relative Time']) - Number(right['Floored Relative Time'])
     )
   );
-  const hasCpuSeries = cpuSeries.some((value) => value !== null);
-  const gpuSeries = metricRows.length
-    ? metricRows.map((row) =>
-        normalizeUtilizationValue(row.nersc_ldms_dcgm_gpu_utilization) ?? 0
+  const timeAxis = metricRows.length
+    ? normalizeFlooredRelativeTimeAxis(
+        metricRows.map((row) => Number(row['Floored Relative Time']))
       )
+    : Array.from({ length: 50 }, (_, index) => index * 2);
+  const metricSeries = metricRows.length
+    ? metricRows.map((row) => (
+        getNormalizedUtilizationMetricValue(row, metricAliases) ?? 0
+      ))
     : timeAxis.map((time, index) =>
-        clampPercent(30 + 20 * Math.sin(time / 12) + (index % 5) * 2)
+        metric === 'cpu'
+          ? buildFallbackCpuUtilizationSeries(timeAxis)[index]
+          : clampPercent(30 + 20 * Math.sin(time / 12) + (index % 5) * 2)
       );
 
   return [
     {
       x: timeAxis,
-      y: hasCpuSeries
-        ? cpuSeries.map((value) => value ?? 0)
-        : buildFallbackCpuUtilizationSeries(timeAxis),
+      y: metricSeries,
       type: 'scatter' as const,
       mode: 'lines' as const,
-      name: 'CPU',
-      line: { color: COLOR_TOKENS.cpu, width: 2 },
-    },
-    {
-      x: timeAxis,
-      y: gpuSeries,
-      type: 'scatter' as const,
-      mode: 'lines' as const,
-      name: 'GPU',
-      line: { color: COLOR_TOKENS.gpu, width: 2 },
+      name: 'Node aggregate',
+      showlegend: true,
+      line: { color: metric === 'cpu' ? COLOR_TOKENS.cpu : COLOR_TOKENS.gpu, width: 2 },
+      customdata: timeAxis.map(formatExecutionTime),
+      hovertemplate: `- %{fullData.name}, ${metricLabel}: %{y:${metric === 'gpu' ? '.3f' : '.1f'}}%<br>Execution Time: %{customdata}<extra></extra>`,
     },
   ];
 }
 
-// Helper function to generate power chart data
-function generatePowerData() {
-  const timePoints = Array.from({ length: 50 }, (_, i) => i * 2);
+function buildCpuPowerChartData(
+  fetchedMetricsSummary?: JobMetricsSummary | null,
+  options: { allowFallback?: boolean } = {}
+) {
+  const cachedCpuPowerRows = fetchedMetricsSummary?.records?.cpuPower ?? [];
+  const cachedCpuPowerSeries = fetchedMetricsSummary?.series?.cpuPower ?? [];
+  const cachedCpuPowerTraces = buildNodeMetricTracesFromRows(
+    cachedCpuPowerRows,
+    ['cpu_power'],
+    'CPU power',
+    { scale: 1, unit: 'W' }
+  );
+
+  if (cachedCpuPowerTraces.length) {
+    return cachedCpuPowerTraces;
+  }
+
+  if (cachedCpuPowerSeries.length) {
+    const timeAxis = normalizeFlooredRelativeTimeAxis(
+      cachedCpuPowerSeries.map((point) => point.x)
+    );
+
+    return [
+      {
+        x: timeAxis,
+        y: cachedCpuPowerSeries.map((point) => point.y),
+        type: 'scatter' as const,
+        mode: 'lines' as const,
+        name: 'CPU aggregate',
+        showlegend: true,
+        line: { color: COLOR_TOKENS.cpu, width: 2 },
+        customdata: timeAxis.map(formatExecutionTime),
+        hovertemplate: '- %{fullData.name}, CPU power: %{y:.1f} W<br>Execution Time: %{customdata}<extra></extra>',
+      },
+    ];
+  }
+
+  if (!options.allowFallback) {
+    return [];
+  }
+
+  const timePoints = Array.from({ length: 50 }, (_, i) => i * 2000);
 
   return [
     {
       x: timePoints,
-      y: timePoints.map(() => 35 + Math.random() * 10),
+      y: timePoints.map(() => Number((35 + Math.random() * 10).toFixed(1))),
       type: 'scatter' as const,
       mode: 'lines' as const,
-      name: 'CPU',
+      name: 'CPU aggregate',
+      showlegend: true,
       line: { color: COLOR_TOKENS.cpu, width: 2 },
-    },
-    {
-      x: timePoints,
-      y: timePoints.map(() => 165 + Math.random() * 10),
-      type: 'scatter' as const,
-      mode: 'lines' as const,
-      name: 'GPU',
-      line: { color: COLOR_TOKENS.gpu, width: 2 },
-    },
-    {
-      x: timePoints,
-      y: timePoints.map(() => 345 + Math.random() * 15),
-      type: 'scatter' as const,
-      mode: 'lines' as const,
-      name: 'Memory',
-      line: { color: COLOR_TOKENS.memory, width: 2 },
-    },
-    {
-      x: timePoints,
-      y: timePoints.map(() => 240 + Math.random() * 15),
-      type: 'scatter' as const,
-      mode: 'lines' as const,
-      name: 'Node',
-      line: { color: COLOR_TOKENS.network, width: 2 },
+      customdata: timePoints.map(formatExecutionTime),
+      hovertemplate: '- %{fullData.name}, CPU power: %{y:.1f} W<br>Execution Time: %{customdata}<extra></extra>',
     },
   ];
 }

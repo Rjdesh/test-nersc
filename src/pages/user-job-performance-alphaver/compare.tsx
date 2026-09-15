@@ -43,8 +43,45 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import { SyntheticEvent, useEffect, useMemo, useState } from 'react';
 import Plot from 'react-plotly.js';
 import { useDataFromSource } from '../../hooks/useDataFromSource';
+import {
+  readLoadedJobMetricsBrowserCache,
+  readLoadedJobsBrowserCache,
+} from '../../utils/userJobPerformanceLoadedJobs';
+import {
+  COMPARE_METRIC_CATEGORIES,
+  CPU_POWER_API_METRIC,
+  GPU_UTILIZATION_METRIC,
+  NODE_POWER_API_METRIC,
+  type CompareMetricDefinition,
+} from './-utils/compareMetricDefinitions';
+
+interface CompareSearch {
+  jobIds?: string;
+  source?: string;
+}
+
+const normalizeSearchValue = (value: unknown) => (
+  typeof value === 'string' ? value : undefined
+);
+
+const parseCompareJobIds = (value: string | undefined) => {
+  if (!value) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    value
+      .split(',')
+      .map((jobId) => jobId.trim())
+      .filter(Boolean)
+  )).slice(0, 5);
+};
 
 export const Route = createFileRoute('/user-job-performance-alphaver/compare')({
+  validateSearch: (search: Record<string, unknown>): CompareSearch => ({
+    jobIds: normalizeSearchValue(search.jobIds),
+    source: normalizeSearchValue(search.source),
+  }),
   component: CompareJobsPage,
 });
 
@@ -57,14 +94,23 @@ interface MetricRow {
 interface UserJobData {
   'Job ID': number;
   'Project': string;
+  'QOS'?: string;
+  'Job Status'?: string;
   'Job Name'?: string;
+  'Submit Time'?: string;
   'Start Time'?: string;
   'End Time'?: string;
   'Hostname'?: string;
   'Charged Node Hours'?: number;
+  'Node hours charged'?: number;
+  'No. of nodes Allocated'?: number;
+  'Elapsed secs'?: number;
+  'State'?: string;
 }
 
 type MetricsByJob = Record<string, MetricRow[]>;
+type PlotGranularity = 'job-level' | 'node-level' | 'gpu-level';
+type RawMetricRecordsByJob = Record<string, Record<string, unknown>[]>;
 
 interface JobOption {
   id: string;
@@ -73,18 +119,7 @@ interface JobOption {
   searchText: string;
 }
 
-interface MetricDefinition {
-  label: string;
-  aliases: string[];
-}
-
-interface MetricCategory {
-  id: string;
-  title: string;
-  metrics: MetricDefinition[];
-}
-
-interface CuratedMetric extends MetricDefinition {
+interface CuratedMetric extends CompareMetricDefinition {
   categoryId: string;
   categoryTitle: string;
   metricId: string;
@@ -95,8 +130,276 @@ interface CuratedMetric extends MetricDefinition {
 
 type RelativeFocusWindow = [number, number];
 
+const getJobStatusTone = (status: string) => {
+  const normalized = status.toLowerCase();
+
+  if (normalized.includes('complete')) {
+    return {
+      color: '#166534',
+      backgroundColor: '#dcfce7',
+      borderColor: '#86efac',
+    };
+  }
+  if (normalized.includes('running')) {
+    return {
+      color: '#1d4ed8',
+      backgroundColor: '#dbeafe',
+      borderColor: '#93c5fd',
+    };
+  }
+  if (normalized.includes('wait')) {
+    return {
+      color: '#475569',
+      backgroundColor: '#e2e8f0',
+      borderColor: '#cbd5e1',
+    };
+  }
+
+  return {
+    color: '#991b1b',
+    backgroundColor: '#fee2e2',
+    borderColor: '#fca5a5',
+  };
+};
+
+const formatJobStatusLabel = (status: string) => {
+  const normalized = status.trim();
+
+  if (!normalized) {
+    return 'Unknown';
+  }
+
+  return normalized
+    .replace(/[_-]+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const parseJobTimestamp = (value: string | undefined) => {
+  if (!value) {
+    return new Date(Number.NaN);
+  }
+
+  return new Date(value.replace(' ', 'T'));
+};
+
+const formatDurationFromSeconds = (value: number | undefined) => {
+  if (!Number.isFinite(value)) {
+    return 'N/A';
+  }
+
+  const totalSeconds = Math.max(0, Math.round(value ?? 0));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: string[] = [];
+
+  if (hours > 0) {
+    parts.push(`${hours}h`);
+  }
+
+  if (minutes > 0) {
+    parts.push(`${minutes}m`);
+  }
+
+  if (seconds > 0 || !parts.length) {
+    parts.push(`${seconds}s`);
+  }
+
+  return parts.join(' ');
+};
+
+const formatDurationBetween = (
+  startTime: string | undefined,
+  endTime: string | undefined
+) => {
+  const start = parseJobTimestamp(startTime);
+  const end = parseJobTimestamp(endTime);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return 'N/A';
+  }
+
+  return formatDurationFromSeconds((end.getTime() - start.getTime()) / 1000);
+};
+
+const formatNumberValue = (value: unknown, maximumFractionDigits = 2) => {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return 'N/A';
+  }
+
+  return numericValue.toLocaleString(undefined, { maximumFractionDigits });
+};
+
 const formatMetricName = (metric: string) =>
   metric.replace('nersc_ldms_dcgm_', '').replace(/_/g, ' ');
+
+const toFiniteNumber = (value: unknown) => {
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue) ? numericValue : null;
+};
+
+const getMedianValue = (values: number[]) => {
+  if (!values.length) {
+    return null;
+  }
+
+  const sortedValues = [...values].sort((left, right) => left - right);
+  const midpoint = Math.floor(sortedValues.length / 2);
+
+  return sortedValues.length % 2 === 0
+    ? (sortedValues[midpoint - 1] + sortedValues[midpoint]) / 2
+    : sortedValues[midpoint];
+};
+
+const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
+
+const normalizeUtilizationValue = (value: unknown) => {
+  const numericValue = toFiniteNumber(value);
+
+  if (numericValue === null) {
+    return null;
+  }
+
+  return clampPercent(Math.abs(numericValue) <= 1 ? numericValue * 100 : numericValue);
+};
+
+const parseMetricTimestamp = (value: unknown, fallbackIndex: number) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? value : value * 1000;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const numericValue = Number(value);
+
+    if (Number.isFinite(numericValue)) {
+      return numericValue > 1_000_000_000_000 ? numericValue : numericValue * 1000;
+    }
+
+    const parsedValue = Date.parse(value.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1'));
+
+    if (Number.isFinite(parsedValue)) {
+      return parsedValue;
+    }
+  }
+
+  return fallbackIndex;
+};
+
+const normalizeRelativeAxis = (timeValues: number[]) => {
+  if (timeValues.length <= 1) {
+    return timeValues.map(() => 0);
+  }
+
+  const minTime = Math.min(...timeValues);
+  const maxTime = Math.max(...timeValues);
+  const span = maxTime - minTime;
+
+  if (!Number.isFinite(span) || span <= 0) {
+    const denominator = Math.max(1, timeValues.length - 1);
+
+    return timeValues.map((_time, index) => Number(((index / denominator) * 100).toFixed(3)));
+  }
+
+  return timeValues.map((time) => Number((((time - minTime) / span) * 100).toFixed(3)));
+};
+
+const getRecordNodeLabel = (record: Record<string, unknown>) => {
+  const rawNode = record.hostname;
+
+  return typeof rawNode === 'string' && rawNode.trim()
+    ? rawNode.trim()
+    : 'Node aggregate';
+};
+
+const getRecordGpuLabel = (record: Record<string, unknown>) => {
+  const rawGpu = record.gpu_id;
+
+  if (rawGpu === undefined || rawGpu === null || rawGpu === '') {
+    return null;
+  }
+
+  const gpuLabel = String(rawGpu).trim();
+
+  if (!gpuLabel) {
+    return null;
+  }
+
+  return gpuLabel.toLowerCase().startsWith('gpu') ? gpuLabel : `GPU ${gpuLabel}`;
+};
+
+const isGpuMetricValue = (metric: string, label: string) => (
+  metric.includes('_dcgm_') || label.toLowerCase().includes('gpu')
+);
+
+const getRecordMetricValue = (
+  record: Record<string, unknown>,
+  aliases: string[],
+  label: string
+) => {
+  const shouldNormalizePercent = label.toLowerCase().includes('utilization');
+
+  for (const alias of aliases) {
+    const value = shouldNormalizePercent
+      ? normalizeUtilizationValue(record[alias])
+      : toFiniteNumber(record[alias]);
+
+    if (value !== null) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const parseNodeList = (value: string | undefined) => {
+  if (!value?.trim()) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    value
+      .split(/[,\s]+/)
+      .map((node) => node.trim())
+      .filter(Boolean)
+  ));
+};
+
+const buildLineTrace = (
+  x: number[],
+  y: number[],
+  name: string,
+  color: string,
+  width = 2,
+  options: {
+    dash?: string;
+    markerSymbol?: string;
+    mode?: 'lines' | 'lines+markers';
+    xAxisLabel?: string;
+    yAxisLabel?: string;
+    xValueSuffix?: string;
+  } = {}
+) => ({
+  x,
+  y,
+  type: 'scatter' as const,
+  mode: options.mode ?? 'lines' as const,
+  name,
+  line: { width, color, ...(options.dash ? { dash: options.dash } : {}) },
+  hovertemplate: `${options.xAxisLabel ?? 'x'}: %{x}${options.xValueSuffix ?? ''}<br>${options.yAxisLabel ?? 'y'}: %{y}<extra>%{fullData.name}</extra>`,
+  ...(options.markerSymbol
+    ? {
+      marker: {
+        size: 6,
+        symbol: options.markerSymbol,
+        color,
+      },
+    }
+    : {}),
+});
 
 const formatValue = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
 const COLOR_TOKENS = {
@@ -150,67 +453,32 @@ const LEFT_PANEL_META_SX = {
   color: COLOR_TOKENS.textSecondary,
 };
 
+const JOB_METADATA_HEADER_CELL_SX = {
+  color: COLOR_TOKENS.label,
+  fontWeight: 700,
+  py: 1.75,
+};
+
+const JOB_METADATA_BODY_CELL_SX = {
+  py: 1.75,
+};
+
 const DUMMY_JOB_COUNT = 5;
 const SYNTHETIC_PROJECT_IDS = ['m842', 'm984', 'm2137', 'm5560', 'm7781'] as const;
 const DEFAULT_SELECTED_METRIC_LABELS = [
   'GPU Utilization (%)',
-  'CPU Utilization (%)',
-  'Node Power',
-  'GPU Memory Bandwidth Utilization (%)',
-  'CPU Memory Bandwidth',
-  'PCIe Throughput (MB/s)',
 ] as const;
-const METRIC_CATEGORIES: MetricCategory[] = [
-  {
-    id: 'efficiency-snapshot',
-    title: 'Efficiency Snapshot',
-    metrics: [
-      { label: 'GPU Utilization (%)', aliases: ['nersc_ldms_dcgm_gpu_utilization'] },
-      { label: 'GPU Memory footprint: FB Used, FB Free', aliases: ['nersc_ldms_dcgm_fb_used', 'nersc_ldms_dcgm_fb_free'] },
-      { label: 'GPU Memory Bandwidth Utilization (%)', aliases: ['nersc_ldms_dcgm_dram_active'] },
-      { label: 'CPU Utilization (%)', aliases: ['nersc_ldms_dcgm_cpu_utilization', 'nersc_ldms_cpu_utilization'] },
-      { label: 'CPU Host Memory Usage', aliases: ['nersc_ldms_cpu_host_memory_usage', 'nersc_ldms_mem_used'] },
-      { label: 'CPU Memory Bandwidth', aliases: ['nersc_ldms_cpu_memory_bandwidth'] },
-    ],
-  },
-  {
-    id: 'gpu-compute',
-    title: 'More GPU Compute Metrics',
-    metrics: [
-      { label: 'GPU SM Active (%)', aliases: ['nersc_ldms_dcgm_sm_active'] },
-      { label: 'GPU Tensor Active (%)', aliases: ['nersc_ldms_dcgm_tensor_active'] },
-      { label: 'GPU Tensor HMMA Active', aliases: ['nersc_ldms_dcgm_tensor_hmma_active'] },
-      { label: 'GPU Tensor IMMA Active', aliases: ['nersc_ldms_dcgm_tensor_imma_active'] },
-      { label: 'GPU FP16 Active', aliases: ['nersc_ldms_dcgm_fp16_active'] },
-      { label: 'GPU FP32 Active', aliases: ['nersc_ldms_dcgm_fp32_active'] },
-      { label: 'GPU FP64 Active', aliases: ['nersc_ldms_dcgm_fp64_active'] },
-    ],
-  },
-  {
-    id: 'power-usage',
-    title: 'Power Usage',
-    metrics: [
-      { label: 'GPU Power', aliases: ['nersc_ldms_dcgm_power_usage'] },
-      { label: 'CPU Power', aliases: ['nersc_ldms_cpu_power'] },
-      { label: 'Node Power', aliases: ['nersc_ldms_node_power'] },
-      { label: 'Memory Power', aliases: ['nersc_ldms_memory_power'] },
-      { label: 'Total GPU Energy Consumed', aliases: ['nersc_ldms_dcgm_total_energy_consumption', 'nersc_ldms_dcgm_energy_consumption'] },
-    ],
-  },
-  {
-    id: 'communication-network',
-    title: 'Communication / Network Metrics',
-    metrics: [
-      { label: 'PCIe Throughput (MB/s)', aliases: ['nersc_ldms_dcgm_pcie_tx_throughput', 'nersc_ldms_dcgm_pcie_rx_throughput'] },
-      { label: 'NVLink Throughput (GB/s)', aliases: ['nersc_ldms_dcgm_nvlink_tx_throughput', 'nersc_ldms_dcgm_nvlink_rx_throughput'] },
-      { label: 'Internode Network Throughput', aliases: ['nersc_ldms_network_throughput', 'nersc_ldms_internode_network_throughput'] },
-      { label: 'NIC Utilization Balance', aliases: ['nersc_ldms_nic_utilization_balance'] },
-      { label: 'NIC Throughput (Packets/sec)', aliases: ['nersc_ldms_nic_throughput_packets_sec', 'nersc_ldms_nic_packets_per_sec'] },
-    ],
-  },
-];
-
+const DETAILS_SELECTED_METRIC_LABELS = [
+  'GPU Utilization (%)',
+  'GPU Memory Bandwidth Utilization (%)',
+  'CPU Memory Utilization',
+  'CPU Power',
+  'PCIe Throughput (MB/s)',
+  'NVLink Throughput (GB/s)',
+  'Slingshot Throughput',
+] as const;
 function CompareJobsPage() {
+  const compareSearch = Route.useSearch();
   const stickySidebarTop = 24;
   const metricsByJob = useDataFromSource(
     'data/user-job-performance/metrics-data.json'
@@ -218,6 +486,11 @@ function CompareJobsPage() {
   const userJobs = useDataFromSource(
     'data/user-job-performance/user-jobs.json'
   ) as UserJobData[] | undefined;
+  const irisJobs = useDataFromSource(
+    'data/user-job-performance/job-data-iris-export.json'
+  ) as UserJobData[] | undefined;
+  const loadedJobCacheEntries = useMemo(() => readLoadedJobsBrowserCache(), []);
+  const loadedJobMetricsCacheEntries = useMemo(() => readLoadedJobMetricsBrowserCache(), []);
 
   const [machine, setMachine] = useState('perlmutter gpu');
   const [jobSearchInput, setJobSearchInput] = useState('');
@@ -227,8 +500,8 @@ function CompareJobsPage() {
   const [plotAggregationByMetric, setPlotAggregationByMetric] = useState<Record<string, string>>({});
   const [expandedMetricSections, setExpandedMetricSections] = useState<Record<string, boolean>>({});
   const [hasInitializedSelectedMetric, setHasInitializedSelectedMetric] = useState(false);
-  const [downsamplingFunction, setDownsamplingFunction] = useState('mean');
-  const [downsamplingWindowValue, setDownsamplingWindowValue] = useState(15);
+  const [downsamplingFunction, setDownsamplingFunction] = useState('median');
+  const [downsamplingWindowValue, setDownsamplingWindowValue] = useState(1);
   const [downsamplingWindowUnit, setDownsamplingWindowUnit] = useState('sec');
   const [focusNodesByJob, setFocusNodesByJob] = useState<Record<string, string[]>>({});
   const [nodeSearchInputByJob, setNodeSearchInputByJob] = useState<Record<string, string>>({});
@@ -239,27 +512,148 @@ function CompareJobsPage() {
   const [pinnedMetricIds, setPinnedMetricIds] = useState<string[]>([]);
   const [isDownsamplingExpanded, setIsDownsamplingExpanded] = useState(false);
   const [isFocusExpanded, setIsFocusExpanded] = useState(false);
+  const [isJobMetadataExpanded, setIsJobMetadataExpanded] = useState(true);
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['efficiency-snapshot']);
+  const [hasInitializedSelectedJobs, setHasInitializedSelectedJobs] = useState(false);
+  const requestedCompareJobIds = useMemo(
+    () => parseCompareJobIds(compareSearch.jobIds),
+    [compareSearch.jobIds]
+  );
+  const defaultSelectedMetricLabels = compareSearch.source === 'job-details'
+    ? DETAILS_SELECTED_METRIC_LABELS
+    : DEFAULT_SELECTED_METRIC_LABELS;
   const [activeSidebarSection, setActiveSidebarSection] = useState<
     'machine' | 'jobs' | 'metrics' | 'data-sampling' | null
   >('machine');
+  const mergedUserJobs = useMemo<UserJobData[]>(() => {
+    const jobsById = new Map<string, UserJobData>();
+
+    (userJobs ?? []).forEach((job) => {
+      jobsById.set(job['Job ID'].toString(), job);
+    });
+
+    (irisJobs ?? []).forEach((job) => {
+      jobsById.set(job['Job ID'].toString(), {
+        ...job,
+        'Charged Node Hours': job['Charged Node Hours'] ?? job['Node hours charged'],
+      });
+    });
+
+    loadedJobCacheEntries.forEach(({ job, jobId }) => {
+      const elapsedSeconds = Number(job.elapsedraw);
+      const nodeCount = Number(job.nnodes ?? job.allocnodes);
+      const chargedNodeHours = Number.isFinite(elapsedSeconds) && Number.isFinite(nodeCount)
+        ? Number(((elapsedSeconds * nodeCount) / 3600).toFixed(2))
+        : 0;
+
+      jobsById.set(jobId, {
+        'Job ID': Number(jobId),
+        Project: job.account ?? 'N/A',
+        'Job Name': job.jobname ?? `Perlmutter job ${jobId}`,
+        'Job Status': job.state ?? 'N/A',
+        'QOS': job.qos ?? 'N/A',
+        'Submit Time': job.submit,
+        'Start Time': job.start ?? job.submit,
+        'End Time': job.end,
+        Hostname: job.nodelist ?? job.machine ?? 'perlmutter',
+        'Charged Node Hours': chargedNodeHours,
+        'No. of nodes Allocated': Number.isFinite(nodeCount) ? nodeCount : undefined,
+        'Elapsed secs': Number.isFinite(elapsedSeconds) ? elapsedSeconds : undefined,
+      });
+    });
+
+    return Array.from(jobsById.values());
+  }, [irisJobs, loadedJobCacheEntries, userJobs]);
+
+  const cachedMetricsByJob = useMemo<MetricsByJob>(() => {
+    const nextCachedMetricsByJob: MetricsByJob = {};
+
+    loadedJobMetricsCacheEntries.forEach(({ jobId, summary }) => {
+      const gpuUtilizationSeries = summary.series?.gpuUtilization ?? [];
+      const nodePowerSeries = summary.series?.nodePower ?? [];
+      const cpuPowerSeries = summary.series?.cpuPower ?? [];
+
+      if (!gpuUtilizationSeries.length && !nodePowerSeries.length && !cpuPowerSeries.length) {
+        return;
+      }
+
+      const rowsByTime = new Map<number, MetricRow>();
+      const ensureRow = (time: number) => {
+        const existingRow = rowsByTime.get(time);
+
+        if (existingRow) {
+          return existingRow;
+        }
+
+        const row: MetricRow = {
+          'Job ID': Number(jobId),
+          'Floored Relative Time': time,
+        };
+        rowsByTime.set(time, row);
+
+        return row;
+      };
+
+      gpuUtilizationSeries.forEach((point) => {
+        ensureRow(point.x)[GPU_UTILIZATION_METRIC] = point.y;
+      });
+      nodePowerSeries.forEach((point) => {
+        ensureRow(point.x)[NODE_POWER_API_METRIC] = point.y;
+      });
+      cpuPowerSeries.forEach((point) => {
+        ensureRow(point.x)[CPU_POWER_API_METRIC] = point.y;
+      });
+
+      nextCachedMetricsByJob[jobId] = Array.from(rowsByTime.values()).sort(
+        (left, right) => left['Floored Relative Time'] - right['Floored Relative Time']
+      );
+    });
+
+    return nextCachedMetricsByJob;
+  }, [loadedJobMetricsCacheEntries]);
+
+  const cachedRawMetricRecordsByJob = useMemo<RawMetricRecordsByJob>(() => {
+    const recordsByJob: RawMetricRecordsByJob = {};
+
+    loadedJobMetricsCacheEntries.forEach(({ jobId, summary }) => {
+      recordsByJob[jobId] = [
+        ...(summary.records?.gpuUtilization ?? []),
+        ...(summary.records?.nodePower ?? []),
+        ...(summary.records?.cpuPower ?? []),
+      ];
+    });
+
+    return recordsByJob;
+  }, [loadedJobMetricsCacheEntries]);
+
+  const baseMetricJobIds = useMemo(
+    () => new Set([
+      ...Object.keys(metricsByJob ?? {}),
+      ...Object.keys(cachedMetricsByJob),
+    ]),
+    [cachedMetricsByJob, metricsByJob]
+  );
 
   const allMetricsByJob = useMemo(() => {
-    if (!metricsByJob) {
+    if (!metricsByJob && !Object.keys(cachedMetricsByJob).length) {
       return undefined;
     }
 
-    const entries = Object.entries(metricsByJob);
+    const baseMetricsByJob = {
+      ...(metricsByJob ?? {}),
+      ...cachedMetricsByJob,
+    };
+    const entries = Object.entries(baseMetricsByJob);
     if (!entries.length) {
-      return metricsByJob;
+      return baseMetricsByJob;
     }
 
-    const numericIds = Object.keys(metricsByJob)
+    const numericIds = Object.keys(baseMetricsByJob)
       .map((id) => Number(id))
       .filter((id) => Number.isFinite(id));
     const maxId = numericIds.length ? Math.max(...numericIds) : 100000;
 
-    const syntheticMetricsByJob: MetricsByJob = { ...metricsByJob };
+    const syntheticMetricsByJob: MetricsByJob = { ...baseMetricsByJob };
     for (let index = 0; index < DUMMY_JOB_COUNT; index += 1) {
       const sourceSeries = entries[index % entries.length][1];
       const syntheticJobId = String(maxId + index + 1);
@@ -287,24 +681,42 @@ function CompareJobsPage() {
     }
 
     return syntheticMetricsByJob;
-  }, [metricsByJob]);
+  }, [cachedMetricsByJob, metricsByJob]);
+
+  const dummyJobIds = useMemo(() => {
+    if (!allMetricsByJob) {
+      return new Set<string>();
+    }
+
+    return new Set(
+      Object.keys(allMetricsByJob).filter((jobId) => !baseMetricJobIds.has(jobId))
+    );
+  }, [allMetricsByJob, baseMetricJobIds]);
 
   const metricNames = useMemo(() => {
-    const firstSeries = allMetricsByJob
-      ? allMetricsByJob[Object.keys(allMetricsByJob)[0]]
-      : undefined;
-    if (!firstSeries || !firstSeries.length) {
+    if (!allMetricsByJob) {
       return [];
     }
-    return Object.keys(firstSeries[0]).filter(
-      (key) => key !== 'Job ID' && key !== 'Floored Relative Time'
-    );
+
+    const names = new Set<string>();
+
+    Object.values(allMetricsByJob).forEach((series) => {
+      series.forEach((row) => {
+        Object.keys(row).forEach((key) => {
+          if (key !== 'Job ID' && key !== 'Floored Relative Time') {
+            names.add(key);
+          }
+        });
+      });
+    });
+
+    return Array.from(names);
   }, [allMetricsByJob]);
 
   const availableMetricNames = useMemo(() => new Set(metricNames), [metricNames]);
 
   const curatedMetricGroups = useMemo(() => {
-    return METRIC_CATEGORIES.map((category) => {
+    return COMPARE_METRIC_CATEGORIES.map((category) => {
       const metrics = category.metrics.map((metric) => {
         const availableAlias = metric.aliases.find((alias) => availableMetricNames.has(alias));
         return {
@@ -365,16 +777,33 @@ function CompareJobsPage() {
     return labels;
   }, [curatedMetricGroups]);
 
+  const metricAliasesByValue = useMemo(() => {
+    const aliasesByValue = new Map<string, string[]>();
+
+    curatedMetricGroups
+      .flatMap((category) => category.metrics)
+      .forEach((metric) => {
+        aliasesByValue.set(metric.metricId, metric.aliases);
+        metric.aliases.forEach((alias) => aliasesByValue.set(alias, metric.aliases));
+      });
+
+    return aliasesByValue;
+  }, [curatedMetricGroups]);
+
   const jobOptions = useMemo<JobOption[]>(() => {
     if (!allMetricsByJob) {
       return [];
     }
-    const metricsJobIds = Object.keys(allMetricsByJob);
+    const jobIds = Array.from(new Set([
+      ...Object.keys(allMetricsByJob),
+      ...mergedUserJobs.map((job) => job['Job ID'].toString()),
+      ...requestedCompareJobIds,
+    ]));
     const userJobById = new Map<string, UserJobData>();
-    (userJobs ?? []).forEach((job) => {
+    mergedUserJobs.forEach((job) => {
       userJobById.set(job['Job ID'].toString(), job);
     });
-    return metricsJobIds.map((jobId, index) => {
+    return jobIds.map((jobId, index) => {
       const matchedJob = userJobById.get(jobId);
       const projectId =
         matchedJob?.Project ?? SYNTHETIC_PROJECT_IDS[index % SYNTHETIC_PROJECT_IDS.length];
@@ -391,7 +820,7 @@ function CompareJobsPage() {
         searchText: `${jobId} ${jobName} ${projectId}`.toLowerCase(),
       };
     });
-  }, [allMetricsByJob, userJobs]);
+  }, [allMetricsByJob, mergedUserJobs, requestedCompareJobIds]);
 
   const selectedJobOptions = useMemo(() => {
     const jobOptionById = new Map(jobOptions.map((job) => [job.id, job]));
@@ -405,13 +834,50 @@ function CompareJobsPage() {
     return jobOptions.filter((job) => !selectedJobIds.has(job.id));
   }, [jobOptions, selectedJobs]);
 
+  const listViewOrderedJobOptions = useMemo(() => {
+    const jobOptionById = new Map(jobOptions.map((job) => [job.id, job]));
+    const listedJobIds = mergedUserJobs
+      .map((job) => ({
+        id: job['Job ID'].toString(),
+        submitTime: parseJobTimestamp(job['Submit Time']).getTime(),
+        startTime: parseJobTimestamp(job['Start Time']).getTime(),
+      }))
+      .sort((left, right) => {
+        const leftTimestamp = Number.isNaN(left.submitTime) ? left.startTime : left.submitTime;
+        const rightTimestamp = Number.isNaN(right.submitTime) ? right.startTime : right.submitTime;
+
+        return (Number.isNaN(rightTimestamp) ? 0 : rightTimestamp) -
+          (Number.isNaN(leftTimestamp) ? 0 : leftTimestamp);
+      })
+      .map((job) => job.id);
+    const listedJobIdLookup = new Set(listedJobIds);
+    const listedOptions = listedJobIds
+      .map((jobId) => jobOptionById.get(jobId))
+      .filter((job): job is JobOption => Boolean(job));
+    const unlistedOptions = jobOptions.filter((job) => !listedJobIdLookup.has(job.id));
+
+    return [...listedOptions, ...unlistedOptions];
+  }, [jobOptions, mergedUserJobs]);
+
+  const jobSelectorOptions = useMemo(() => {
+    const selectedJobIds = new Set(selectedJobs);
+
+    if (jobSearchInput.trim()) {
+      return searchableJobOptions;
+    }
+
+    return listViewOrderedJobOptions
+      .filter((job) => !selectedJobIds.has(job.id))
+      .slice(0, 10);
+  }, [jobSearchInput, listViewOrderedJobOptions, searchableJobOptions, selectedJobs]);
+
   const jobMetadataById = useMemo(() => {
     const metadata = new Map<string, UserJobData>();
-    (userJobs ?? []).forEach((job) => {
+    mergedUserJobs.forEach((job) => {
       metadata.set(job['Job ID'].toString(), job);
     });
     return metadata;
-  }, [userJobs]);
+  }, [mergedUserJobs]);
 
   const focusableJobOptions = useMemo(() => {
     const jobOptionById = new Map(jobOptions.map((job) => [job.id, job]));
@@ -424,25 +890,49 @@ function CompareJobsPage() {
   const nodeOptionsByJob = useMemo(() => {
     const entries = focusableJobOptions.map((job) => {
       const jobMetadata = jobMetadataById.get(job.id);
-      const hostname = jobMetadata?.Hostname?.trim() || 'perlmutter-gpu';
-      const baseName = hostname.toLowerCase().replace(/\s+/g, '-');
-      const estimatedNodeCount = Math.min(
-        5,
-        Math.max(2, Math.round((jobMetadata?.['Charged Node Hours'] ?? 0.75) * 4))
-      );
-      const nodes = Array.from({ length: estimatedNodeCount }, (_value, index) =>
-        `${baseName}-node-${String(index + 1).padStart(2, '0')}`
-      );
+      const nodesFromRecords = Array.from(new Set(
+        (cachedRawMetricRecordsByJob[job.id] ?? [])
+          .map(getRecordNodeLabel)
+          .filter((node) => node !== 'Node aggregate')
+      )).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+      const nodes = nodesFromRecords.length
+        ? nodesFromRecords
+        : parseNodeList(jobMetadata?.Hostname);
 
       return [job.id, nodes] as const;
     });
 
     return Object.fromEntries(entries);
-  }, [focusableJobOptions, jobMetadataById]);
+  }, [cachedRawMetricRecordsByJob, focusableJobOptions, jobMetadataById]);
+
+  useEffect(() => {
+    setFocusNodesByJob((current) => {
+      const nextEntries = Object.entries(current)
+        .map(([jobId, selectedNodes]) => {
+          const availableNodes = new Set(nodeOptionsByJob[jobId] ?? []);
+          return [
+            jobId,
+            selectedNodes.filter((node) => availableNodes.has(node)),
+          ] as const;
+        })
+        .filter(([_jobId, selectedNodes]) => selectedNodes.length > 0);
+
+      if (
+        nextEntries.length === Object.keys(current).length &&
+        nextEntries.every(([jobId, selectedNodes]) => (
+          selectedNodes.length === current[jobId]?.length
+        ))
+      ) {
+        return current;
+      }
+
+      return Object.fromEntries(nextEntries);
+    });
+  }, [nodeOptionsByJob]);
 
   useEffect(() => {
     if (!hasInitializedSelectedMetric && !selectedMetrics.length && metricNames.length) {
-      const defaultMetricLabels = new Set<string>(DEFAULT_SELECTED_METRIC_LABELS);
+      const defaultMetricLabels = new Set<string>(defaultSelectedMetricLabels);
       const defaultMetrics = curatedMetricGroups
         .flatMap((category) => category.metrics)
         .filter((metric) => defaultMetricLabels.has(metric.label))
@@ -450,15 +940,29 @@ function CompareJobsPage() {
       setSelectedMetrics(defaultMetrics.length ? defaultMetrics : [metricNames[0]]);
       setHasInitializedSelectedMetric(true);
     }
-  }, [curatedMetricGroups, hasInitializedSelectedMetric, selectedMetrics.length, metricNames]);
+  }, [
+    curatedMetricGroups,
+    defaultSelectedMetricLabels,
+    hasInitializedSelectedMetric,
+    metricNames,
+    selectedMetrics.length,
+  ]);
 
   useEffect(() => {
-    if (!selectedJobs.length && jobOptions.length) {
-      const defaultJobs = jobOptions.slice(0, 1).map((job) => job.id);
-      setSelectedJobs(defaultJobs);
-      setComparedJobs(defaultJobs);
+    if (hasInitializedSelectedJobs || !jobOptions.length) {
+      return;
     }
-  }, [jobOptions, selectedJobs.length]);
+
+    const availableJobIds = new Set(jobOptions.map((job) => job.id));
+    const requestedJobs = requestedCompareJobIds.filter((jobId) => availableJobIds.has(jobId));
+    const initialJobs = requestedJobs.length
+      ? requestedJobs
+      : jobOptions.slice(0, 1).map((job) => job.id);
+
+    setSelectedJobs(initialJobs);
+    setComparedJobs(initialJobs);
+    setHasInitializedSelectedJobs(true);
+  }, [hasInitializedSelectedJobs, jobOptions, requestedCompareJobIds]);
 
   useEffect(() => {
     setPlotAggregationByMetric((current) => {
@@ -491,21 +995,248 @@ function CompareJobsPage() {
       return [];
     }
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#ef4444'];
-    return selectedMetrics.map((metric) => {
-      const traces = comparedJobs.flatMap((jobId, index) => {
-        const series = allMetricsByJob[jobId];
-        if (!series || !series.length) {
-          return [];
-        }
-        const maxTime = Math.max(...series.map((row) => row['Floored Relative Time']), 1);
-        return [{
-          x: series.map((row) => Math.round((row['Floored Relative Time'] / maxTime) * 100)),
-          y: series.map((row) => row[metric]),
-          type: 'scatter' as const,
+    const nodeColors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#dc2626'];
+    const nodeDashStyles = ['dash', 'dot', 'dashdot', 'longdash', 'longdashdot'];
+    const nodeMarkerSymbols = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up'];
+    const getGranularTraceStyle = (jobIndex: number, traceIndex: number) => {
+      const isSingleJob = comparedJobs.length <= 1;
+
+      if (isSingleJob) {
+        return {
+          color: nodeColors[traceIndex % nodeColors.length],
+          dash: 'dash',
+          markerSymbol: undefined,
           mode: 'lines' as const,
-          name: `Job ${jobId}`,
-          line: { width: 2, color: colors[index % colors.length] },
-        }];
+        };
+      }
+
+      return {
+        color: colors[jobIndex % colors.length],
+        dash: nodeDashStyles[traceIndex % nodeDashStyles.length],
+        markerSymbol: nodeMarkerSymbols[traceIndex % nodeMarkerSymbols.length],
+        mode: 'lines+markers' as const,
+      };
+    };
+    const getJobLegendName = (jobId: string) => `Job ${jobId}${dummyJobIds.has(jobId) ? ' (dum.)' : ''}`;
+    const buildCompactJobTrace = (
+      jobId: string,
+      index: number,
+      metric: string,
+      yAxisLabel: string
+    ) => {
+      const series = allMetricsByJob[jobId] ?? [];
+      const points = series
+        .map((row) => ({
+          time: Number(row['Floored Relative Time']),
+          value: toFiniteNumber(row[metric]),
+        }))
+        .filter((point): point is { time: number; value: number } => (
+          Number.isFinite(point.time) && point.value !== null
+        ));
+
+      if (!points.length) {
+        return [];
+      }
+
+      return [
+        buildLineTrace(
+          normalizeRelativeAxis(points.map((point) => point.time)),
+          points.map((point) => point.value),
+          getJobLegendName(jobId),
+          colors[index % colors.length],
+          2,
+          {
+            xAxisLabel: 'Relative Time',
+            yAxisLabel,
+            xValueSuffix: '%',
+          }
+        ),
+      ];
+    };
+    const buildDemoGranularTraces = (
+      jobId: string,
+      jobIndex: number,
+      metric: string,
+      yAxisLabel: string,
+      level: 'node-level' | 'gpu-level'
+    ) => {
+      const baseTrace = buildCompactJobTrace(jobId, jobIndex, metric, yAxisLabel)[0];
+
+      if (!baseTrace) {
+        return [];
+      }
+
+      const traceLabels = level === 'node-level'
+        ? (nodeOptionsByJob[jobId] ?? []).slice(0, 4)
+        : Array.from({ length: 4 }, (_value, gpuIndex) => `GPU ${gpuIndex}`);
+      const labels = traceLabels.length ? traceLabels : ['Node aggregate'];
+
+      return labels.map((label, labelIndex) => {
+        const modifier = 1 + ((labelIndex - (labels.length - 1) / 2) * 0.035);
+        const y = (baseTrace.y as number[]).map((value, pointIndex) =>
+          Number((value * modifier + ((pointIndex + labelIndex) % 3) * 0.2).toFixed(3))
+        );
+        const name = level === 'node-level'
+          ? `${getJobLegendName(jobId)} / ${label}`
+          : `${getJobLegendName(jobId)} / ${label}`;
+
+        const nodeTraceStyle = getGranularTraceStyle(jobIndex, labelIndex);
+
+        return buildLineTrace(
+          baseTrace.x as number[],
+          y,
+          name,
+          nodeTraceStyle.color,
+          1.8,
+          {
+            ...nodeTraceStyle,
+            xAxisLabel: 'Relative Time',
+            yAxisLabel,
+            xValueSuffix: '%',
+          }
+        );
+      });
+    };
+    const buildRecordGranularTraces = (
+      jobId: string,
+      jobIndex: number,
+      metric: string,
+      yAxisLabel: string,
+      metricAliases: string[],
+      level: 'node-level' | 'gpu-level'
+    ) => {
+      const records = cachedRawMetricRecordsByJob[jobId] ?? [];
+      const groupedValues = new Map<string, {
+        label: string;
+        time: number;
+        values: number[];
+      }>();
+
+      records.forEach((record, recordIndex) => {
+        const value = getRecordMetricValue(record, metricAliases, yAxisLabel);
+
+        if (value === null) {
+          return;
+        }
+
+        const time = parseMetricTimestamp(record.timestamp, recordIndex);
+        const nodeLabel = getRecordNodeLabel(record);
+        const gpuLabel = level === 'gpu-level' ? getRecordGpuLabel(record) : null;
+
+        if (level === 'gpu-level' && !gpuLabel) {
+          return;
+        }
+
+        const label = level === 'node-level'
+          ? nodeLabel
+          : `${nodeLabel} / ${gpuLabel}`;
+        const key = `${label}-${time}`;
+        const existingGroup = groupedValues.get(key);
+
+        if (existingGroup) {
+          existingGroup.values.push(value);
+          return;
+        }
+
+        groupedValues.set(key, {
+          label,
+          time,
+          values: [value],
+        });
+      });
+
+      const points = Array.from(groupedValues.values())
+        .map((group) => ({
+          label: group.label,
+          time: group.time,
+          value: level === 'node-level'
+            ? getMedianValue(group.values)
+            : group.values[0],
+        }))
+        .filter((point): point is { label: string; time: number; value: number } => (
+          point.value !== null
+        ));
+
+      if (!points.length) {
+        return [];
+      }
+
+      const uniqueTimes = Array.from(new Set(points.map((point) => point.time))).sort(
+        (left, right) => left - right
+      );
+      const relativeTimeByTime = new Map(
+        uniqueTimes.map((time, index) => [time, normalizeRelativeAxis(uniqueTimes)[index]])
+      );
+      const selectedNodes = new Set(focusNodesByJob[jobId] ?? []);
+      const pointsByLabel = points.reduce<Record<string, Array<{ x: number; y: number }>>>(
+        (groups, point) => {
+          if (level === 'node-level' && selectedNodes.size > 0 && !selectedNodes.has(point.label)) {
+            return groups;
+          }
+
+          const x = relativeTimeByTime.get(point.time) ?? 0;
+
+          if (x < commonRelativeFocusWindow[0] || x > commonRelativeFocusWindow[1]) {
+            return groups;
+          }
+
+          return {
+            ...groups,
+            [point.label]: [
+              ...(groups[point.label] ?? []),
+              { x, y: point.value },
+            ],
+          };
+        },
+        {}
+      );
+
+      return Object.entries(pointsByLabel).map(([label, tracePoints], traceIndex) => {
+        const sortedPoints = [...tracePoints].sort((left, right) => left.x - right.x);
+
+        const nodeTraceStyle = getGranularTraceStyle(jobIndex, traceIndex);
+
+        return buildLineTrace(
+          sortedPoints.map((point) => point.x),
+          sortedPoints.map((point) => point.y),
+          `${getJobLegendName(jobId)} / ${label}`,
+          nodeTraceStyle.color,
+          1.8,
+          {
+            ...nodeTraceStyle,
+            xAxisLabel: 'Relative Time',
+            yAxisLabel,
+            xValueSuffix: '%',
+          }
+        );
+      });
+    };
+
+    return selectedMetrics.map((metric) => {
+      const label = metricLabelByValue.get(metric) ?? formatMetricName(metric);
+      const metricAliases = metricAliasesByValue.get(metric) ?? [metric];
+      const isGpuMetric = isGpuMetricValue(metric, label);
+      const selectedGranularity = (plotAggregationByMetric[metric] ?? 'job-level') as PlotGranularity;
+      const granularity = selectedGranularity === 'gpu-level' && !isGpuMetric
+        ? 'job-level'
+        : selectedGranularity;
+      const traces = comparedJobs.flatMap((jobId, index) => {
+        if (granularity === 'job-level') {
+          return buildCompactJobTrace(jobId, index, metric, label);
+        }
+
+        const recordTraces = buildRecordGranularTraces(
+          jobId,
+          index,
+          metric,
+          label,
+          metricAliases,
+          granularity
+        );
+
+        return recordTraces.length
+          ? recordTraces
+          : buildDemoGranularTraces(jobId, index, metric, label, granularity);
       });
 
       const summaryRows = comparedJobs.map((jobId) => {
@@ -530,12 +1261,26 @@ function CompareJobsPage() {
 
       return {
         metric,
-        label: metricLabelByValue.get(metric) ?? formatMetricName(metric),
+        label,
+        isGpuMetric,
+        granularity,
         traces,
         summaryRows,
       };
     });
-  }, [allMetricsByJob, comparedJobs, metricLabelByValue, selectedMetrics]);
+  }, [
+    allMetricsByJob,
+    cachedRawMetricRecordsByJob,
+    commonRelativeFocusWindow,
+    comparedJobs,
+    dummyJobIds,
+    focusNodesByJob,
+    metricAliasesByValue,
+    metricLabelByValue,
+    nodeOptionsByJob,
+    plotAggregationByMetric,
+    selectedMetrics,
+  ]);
 
   const handleJobAdd = (_event: SyntheticEvent, value: JobOption | null) => {
     if (!value || selectedJobs.includes(value.id)) {
@@ -627,6 +1372,7 @@ function CompareJobsPage() {
   };
 
   const downsamplingFunctionLabelByValue: Record<string, string> = {
+    median: 'Median',
     mean: 'Mean',
     max: 'Max',
     min: 'Min',
@@ -637,6 +1383,31 @@ function CompareJobsPage() {
     metric,
     label: metricLabelByValue.get(metric) ?? formatMetricName(metric),
   }));
+  const comparedJobMetadataRows = useMemo(() => {
+    const jobOptionById = new Map(jobOptions.map((job) => [job.id, job]));
+
+    return comparedJobs.map((jobId) => {
+      const metadata = jobMetadataById.get(jobId);
+      const option = jobOptionById.get(jobId);
+      const nodeHours = metadata?.['Charged Node Hours'] ?? metadata?.['Node hours charged'];
+      const elapsedSeconds = Number(metadata?.['Elapsed secs']);
+      const runTime = Number.isFinite(elapsedSeconds) && elapsedSeconds > 0
+        ? formatDurationFromSeconds(elapsedSeconds)
+        : formatDurationBetween(metadata?.['Start Time'], metadata?.['End Time']);
+      const waitTime = formatDurationBetween(metadata?.['Submit Time'], metadata?.['Start Time']);
+
+      return {
+        jobId,
+        jobName: metadata?.['Job Name']?.trim() || option?.jobName || `Job ${jobId}`,
+        jobStatus: metadata?.['Job Status'] ?? metadata?.State ?? 'N/A',
+        runTime,
+        waitTime,
+        qos: metadata?.QOS ?? 'N/A',
+        nodeCount: formatNumberValue(metadata?.['No. of nodes Allocated'], 0),
+        nodeChargeHours: formatNumberValue(nodeHours),
+      };
+    });
+  }, [comparedJobs, jobMetadataById, jobOptions]);
   const downsamplingWindowLabel = `${downsamplingWindowValue} ${downsamplingWindowUnit}`;
   const hasFocusedNodes = Object.values(focusNodesByJob).some((nodes) => nodes.length > 0);
   const hasCustomRelativeFocusWindow =
@@ -675,19 +1446,11 @@ function CompareJobsPage() {
         >
           <Link
             component={RouterLink}
-            to="/center-performance"
-            underline="hover"
-            sx={{ color: '#1B4684', fontWeight: 500 }}
-          >
-            Iris
-          </Link>
-          <Link
-            component={RouterLink}
             to="/user-job-performance-alphaver"
             underline="hover"
             sx={{ color: '#1B4684', fontWeight: 500 }}
           >
-            Utilities
+            Jobs
           </Link>
           <Typography sx={{ color: COLOR_TOKENS.textPrimary, fontWeight: 500 }}>
             Performance Analyzer
@@ -870,10 +1633,10 @@ function CompareJobsPage() {
                           selectedJobOptions.map((job) => (
                             <Tooltip
                               key={job.id}
-                              title={`Project ${job.projectId} • Job ID ${job.id}`}
+                              title={`${job.jobName} • Project ${job.projectId}`}
                               arrow
                             >
-                              <Chip size="medium" label={job.jobName} sx={leftPanelTagSx} />
+                              <Chip size="medium" label={job.id} sx={leftPanelTagSx} />
                             </Tooltip>
                           ))
                         ) : (
@@ -886,13 +1649,13 @@ function CompareJobsPage() {
                 <AccordionDetails sx={{ px: 2, pt: 1, pb: 1.75 }}>
                   <Stack spacing={2.25}>
                     <Autocomplete
-                      options={searchableJobOptions}
+                      options={jobSelectorOptions}
                       value={null}
                       inputValue={jobSearchInput}
                       onInputChange={(_event, value) => setJobSearchInput(value)}
                       onChange={handleJobAdd}
                       isOptionEqualToValue={(option, value) => option.id === value.id}
-                      getOptionLabel={(option) => `Job ${option.id} - ${option.jobName}`}
+                      getOptionLabel={(option) => option.id}
                       filterOptions={(options, state) => {
                         const query = state.inputValue.trim().toLowerCase();
                         if (!query) {
@@ -915,10 +1678,10 @@ function CompareJobsPage() {
                           <Box component="li" key={key} {...optionProps}>
                             <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                               <Typography variant="body2" sx={LEFT_PANEL_OPTION_LABEL_SX}>
-                                {option.jobName}
+                                {option.id}
                               </Typography>
                               <Typography variant="caption" sx={LEFT_PANEL_META_SX}>
-                                Job ID {option.id} • Project {option.projectId}
+                                {option.jobName} • Project {option.projectId}
                               </Typography>
                             </Box>
                           </Box>
@@ -930,12 +1693,12 @@ function CompareJobsPage() {
                       {selectedJobOptions.map((job) => (
                         <Tooltip
                           key={job.id}
-                          title={`Project ${job.projectId} • Job ID ${job.id}`}
+                          title={`${job.jobName} • Project ${job.projectId}`}
                           arrow
                         >
                           <Chip
                             size="medium"
-                            label={job.jobName}
+                            label={job.id}
                             onDelete={() => handleRemoveComparedJob(job.id)}
                             sx={leftPanelTagSx}
                           />
@@ -1518,7 +2281,6 @@ function CompareJobsPage() {
                               <MenuItem value="mean">Mean</MenuItem>
                               <MenuItem value="max">Max</MenuItem>
                               <MenuItem value="min">Min</MenuItem>
-                              <MenuItem value="stddev">Std dev.</MenuItem>
                             </Select>
                           </FormControl>
 
@@ -1764,6 +2526,117 @@ function CompareJobsPage() {
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Paper elevation={0} sx={{ p: 2, boxShadow: 'none' }}>
             <Stack spacing={3}>
+              <Accordion
+                disableGutters
+                expanded={isJobMetadataExpanded}
+                onChange={(_event, expanded) => setIsJobMetadataExpanded(expanded)}
+                sx={{
+                  boxShadow: 'none',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 0,
+                  '&:before': { display: 'none' },
+                }}
+              >
+                <AccordionSummary
+                  sx={{
+                    px: 2,
+                    minHeight: 56,
+                    flexDirection: 'row-reverse',
+                    justifyContent: 'flex-end',
+                    gap: 1,
+                    '& .MuiAccordionSummary-content': {
+                      my: 1.25,
+                      alignItems: 'center',
+                      justifyContent: 'flex-start',
+                      gap: 2,
+                    },
+                    '& .MuiAccordionSummary-expandIconWrapper': {
+                      mr: 0,
+                    },
+                  }}
+                >
+                  <ExpandMoreIcon
+                    sx={{
+                      color: COLOR_TOKENS.textSecondary,
+                      transform: isJobMetadataExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                      transition: 'transform 150ms ease',
+                    }}
+                  />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="h6" sx={SECTION_TITLE_SX}>
+                      Job details
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: COLOR_TOKENS.textSecondary }}>
+                      {comparedJobMetadataRows.length} compared{' '}
+                      {comparedJobMetadataRows.length === 1 ? 'job' : 'jobs'}
+                    </Typography>
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ px: 2, pt: 0, pb: 2 }}>
+                  <TableContainer
+                    sx={{
+                      border: '1px solid #e2e8f0',
+                      bgcolor: '#ffffff',
+                    }}
+                  >
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={JOB_METADATA_HEADER_CELL_SX}>Job ID</TableCell>
+                          <TableCell sx={JOB_METADATA_HEADER_CELL_SX}>Job Name</TableCell>
+                          <TableCell sx={JOB_METADATA_HEADER_CELL_SX}>Job Status</TableCell>
+                          <TableCell sx={JOB_METADATA_HEADER_CELL_SX}>Run Time</TableCell>
+                          <TableCell sx={JOB_METADATA_HEADER_CELL_SX}>Wait Time</TableCell>
+                          <TableCell sx={JOB_METADATA_HEADER_CELL_SX}>QOS</TableCell>
+                          <TableCell sx={JOB_METADATA_HEADER_CELL_SX}>No. of Nodes</TableCell>
+                          <TableCell sx={JOB_METADATA_HEADER_CELL_SX}>Node Charge Hours</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {comparedJobMetadataRows.length ? (
+                          comparedJobMetadataRows.map((job) => (
+                            <TableRow key={job.jobId} hover>
+                              <TableCell sx={{ ...JOB_METADATA_BODY_CELL_SX, fontWeight: 600 }}>
+                                {job.jobId}
+                              </TableCell>
+                              <TableCell sx={JOB_METADATA_BODY_CELL_SX}>{job.jobName}</TableCell>
+                              <TableCell sx={JOB_METADATA_BODY_CELL_SX}>
+                                <Chip
+                                  label={formatJobStatusLabel(job.jobStatus)}
+                                  size="small"
+                                  sx={{
+                                    height: 24,
+                                    fontWeight: 500,
+                                    color: getJobStatusTone(job.jobStatus).color,
+                                    bgcolor: getJobStatusTone(job.jobStatus).backgroundColor,
+                                    border: `1px solid ${getJobStatusTone(job.jobStatus).borderColor}`,
+                                    '& .MuiChip-label': {
+                                      px: 1,
+                                    },
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell sx={JOB_METADATA_BODY_CELL_SX}>{job.runTime}</TableCell>
+                              <TableCell sx={JOB_METADATA_BODY_CELL_SX}>{job.waitTime}</TableCell>
+                              <TableCell sx={JOB_METADATA_BODY_CELL_SX}>{job.qos}</TableCell>
+                              <TableCell sx={JOB_METADATA_BODY_CELL_SX}>{job.nodeCount}</TableCell>
+                              <TableCell sx={JOB_METADATA_BODY_CELL_SX}>{job.nodeChargeHours}</TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={8} sx={JOB_METADATA_BODY_CELL_SX}>
+                              <Typography variant="body2" sx={{ color: COLOR_TOKENS.textSecondary }}>
+                                No jobs selected for comparison.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </AccordionDetails>
+              </Accordion>
               
                 <Box
                   sx={{
@@ -1823,19 +2696,25 @@ function CompareJobsPage() {
                             }}
                           >
                             <FormControl size="small" sx={{ minWidth: 260 }}>
-                              <InputLabel>Aggregate data</InputLabel>
+                              <InputLabel>Granularity</InputLabel>
                               <Select
-                                label="Aggregate data"
-                                value={plotAggregationByMetric[section.metric] ?? 'none'}
+                                label="Granularity"
+                                value={section.granularity}
                                 onChange={(event) =>
                                   handlePlotAggregationChange(section.metric, event.target.value)
                                 }
                               >
-                                <MenuItem value="none">None</MenuItem>
-                                <MenuItem value="sum-gpus">Sum Over GPU(s) (Intra Node)</MenuItem>
-                                <MenuItem value="sum-nodes">Sum Over Node(s)</MenuItem>
-                                <MenuItem value="mean-gpus">Mean Over GPU(s) (Intra Node)</MenuItem>
-                                <MenuItem value="mean-nodes">Mean Over Node(s)</MenuItem>
+                                <MenuItem value="job-level">
+                                  Job level (median across nodes)
+                                </MenuItem>
+                                <MenuItem value="node-level">
+                                  Node level (median across GPUs)
+                                </MenuItem>
+                                {section.isGpuMetric && (
+                                  <MenuItem value="gpu-level">
+                                    gpu level (no aggregation)
+                                  </MenuItem>
+                                )}
                               </Select>
                             </FormControl>
                           </Box>
@@ -1856,6 +2735,9 @@ function CompareJobsPage() {
                                 xaxis: {
                                   title: 'Relative Time',
                                   ticksuffix: '%',
+                                  range: [0, 100],
+                                  tick0: 0,
+                                  dtick: 20,
                                   gridcolor: '#e2e8f0',
                                 },
                                 yaxis: { title: section.label, gridcolor: '#e2e8f0' },

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getApiUrl } from '../../../utils/api';
 
 export interface IrisGpuUtilizationSummary {
   jobId: number;
@@ -35,7 +36,7 @@ export const useIrisGpuUtilization = (enabled: boolean) => {
 
     const fetchSummaries = async () => {
       try {
-        const response = await fetch('/api/user-job-performance/iris-gpu-utilization', {
+        const response = await fetch(getApiUrl('/user-job-performance/iris-gpu-utilization'), {
           signal: abortController.signal,
         });
 

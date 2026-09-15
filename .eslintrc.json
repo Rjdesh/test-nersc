@@ -15,7 +15,8 @@
     "!.stylelintrc.json",
     "*.md",
     "*.css",
-    "dist"
+    "dist",
+    "dist-server"
   ],
   "extends": ["airbnb-typescript", "plugin:prettier/recommended"],
   "plugins": ["@typescript-eslint", "import", "react", "prettier"],

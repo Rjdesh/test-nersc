@@ -165,7 +165,7 @@ export const fetchData = async (dataSource: string) => {
   const isExternal = dataSource.startsWith('http');
   const dataSourcePath = isExternal
     ? cleanUrl(dataSource)
-    : cleanUrl(`${basename}/${dataSource}`);
+    : cleanUrl(cleanPath(`${basename}/${dataSource}`));
   let data: any = [];
   if (fileExtension === 'csv') {
     data = await d3.csv(dataSourcePath);

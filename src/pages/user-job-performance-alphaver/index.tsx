@@ -1,6 +1,8 @@
 import {
+  Alert,
   Box,
   Chip,
+  CircularProgress,
   Divider,
   Drawer,
   Stack,
@@ -22,9 +24,11 @@ import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import { createFileRoute, Link as RouterLink, useNavigate } from '@tanstack/react-router';
-import { MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import type { VirtualElement } from '@popperjs/core';
+import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FilterContext } from '../../components/FilterContext';
 import { SciDataGrid } from '../../components/SciDataGrid';
 import {
@@ -38,20 +42,25 @@ import {
 import { useDataFromSource } from '../../hooks/useDataFromSource';
 import Plot from 'react-plotly.js';
 import {
-  buildComputePerformanceSnapshot,
   buildRecentJobPerformanceRows,
-  ComputeMetricsByJob,
-  ComputeMetricsExport,
   getJobPerformanceSummary,
   IrisJobData,
   MetricsByJob,
   LegacyUserJobData,
-  MetricStats,
   MetricFetchStatus,
-  PerformanceSnapshot,
 } from './-controllers/recentJobPerformance.controller';
-import { useIrisGpuUtilization } from './-controllers/irisGpuUtilization.controller';
-import { cleanPath } from '../../utils/queryParams.utils';
+import {
+  clearLoadedJobPerformanceBrowserCache,
+  fetchJobMetricsSummary,
+  fetchNerscJobById,
+  JobMetricsSummary,
+  readLoadedJobMetricsBrowserCache,
+  mergeLoadedJobsBrowserCache,
+  parseSelectedJobIds,
+  readSelectedUserBrowserCache,
+  readLoadedJobsBrowserCache,
+  writeSelectedUserBrowserCache,
+} from '../../utils/userJobPerformanceLoadedJobs';
 
 export const Route = createFileRoute('/user-job-performance-alphaver/')({
   component: UserJobPerformance,
@@ -122,6 +131,7 @@ const ACTIONS_COLUMN_FIELD = 'actions';
 const DEFAULT_COLUMN_ORDER = [
   'jobId',
   'submitTime',
+  'startTime',
   'qos',
   'waitTime',
   'executionTime',
@@ -139,6 +149,7 @@ const DEFAULT_COLUMN_ORDER = [
 const DEFAULT_VISIBLE_COLUMN_FIELDS = new Set([
   'jobId',
   'submitTime',
+  'startTime',
   'qos',
   'executionTime',
   'jobStatus',
@@ -157,89 +168,6 @@ const DEFAULT_COLUMN_VISIBILITY_MODEL = DEFAULT_COLUMN_ORDER.reduce<GridColumnVi
   {}
 );
 const ORDER_LOCKED_COLUMN_FIELDS = new Set([ACTIONS_COLUMN_FIELD]);
-const PERFORMANCE_SNAPSHOT_ROWS = [
-  { key: 'gpuUtilization', label: 'Avg. GPU utilization', unit: '%' },
-  { key: 'cpuUtilization', label: 'Avg. CPU utilization', unit: '%' },
-  { key: 'gpuMemoryBandwidth', label: 'Avg. GPU Memory Bandwidth', unit: '%' },
-  { key: 'cpuMemoryBandwidth', label: 'Avg. CPU Memory Bandwidth', unit: '%' },
-] as const;
-interface PowerMetricRow {
-  [key: string]: number | string | null | undefined;
-}
-
-interface PowerConsumptionSummary {
-  nodePower: number | null;
-  cpuPower: number | null;
-  gpuPower: number | null;
-  memoryPower: number | null;
-}
-
-const getLocalDataSourcePath = (dataSource: string) => {
-  const base = document.querySelector('base')?.getAttribute('href') ?? '';
-  const basePath = import.meta.env.VITE_BASE_URL || '';
-  const leadingSlash = basePath ? '/' : '';
-  const basename = cleanPath(leadingSlash + base + basePath);
-
-  return `${basename}/${dataSource}`;
-};
-
-function useJobComputeMetricsExport(jobId: string | null) {
-  const [computeMetricsExportState, setComputeMetricsExportState] =
-    useState<{ jobId: string; data: ComputeMetricsExport } | undefined>();
-
-  useEffect(() => {
-    let isActive = true;
-
-    if (!jobId) {
-      setComputeMetricsExportState(undefined);
-      return () => {
-        isActive = false;
-      };
-    }
-
-    const fetchComputeMetricsExport = async () => {
-      const dataSourcePath = getLocalDataSourcePath(
-        `data/user-job-performance/job_exports/job_${jobId}.json`
-      );
-
-      try {
-        const response = await fetch(dataSourcePath);
-
-        if (!response.ok) {
-          if (isActive) {
-            setComputeMetricsExportState(undefined);
-          }
-          return;
-        }
-
-        const nextComputeMetricsExport = await response.json() as ComputeMetricsExport;
-
-        if (isActive) {
-          setComputeMetricsExportState({
-            jobId,
-            data: nextComputeMetricsExport,
-          });
-        }
-      } catch {
-        if (isActive) {
-          setComputeMetricsExportState(undefined);
-        }
-      }
-    };
-
-    setComputeMetricsExportState(undefined);
-    fetchComputeMetricsExport();
-
-    return () => {
-      isActive = false;
-    };
-  }, [jobId]);
-
-  return computeMetricsExportState?.jobId === jobId
-    ? computeMetricsExportState.data
-    : undefined;
-}
-
 const getUtilizationBarColor = (value: number) => {
   if (value >= 70) {
     return '#16a34a';
@@ -360,173 +288,254 @@ function UtilizationBarCell({
   );
 }
 
-const formatSnapshotValue = (value: number | null, unit: string) => {
+const formatSnapshotValue = (value: number | null, unit: string, maximumFractionDigits = 1) => {
   if (value === null || !Number.isFinite(value)) {
     return 'N/A';
   }
 
   const formattedValue = value.toLocaleString(undefined, {
-    maximumFractionDigits: 1,
+    maximumFractionDigits,
+    minimumFractionDigits: unit === '%' ? maximumFractionDigits : 0,
   });
 
   return unit === '%' ? `${formattedValue}%` : `${formattedValue} ${unit}`;
 };
 
-const getAverageValue = (values: number[]) => {
-  if (!values.length) {
-    return null;
+type DrawerMetricSeriesPoint = { x: number; y: number };
+
+const toExecutionTimeMs = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return 0;
   }
 
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-};
-
-const getAverageFromRows = (
-  rows: PowerMetricRow[] | undefined,
-  metricKey: string
-) => getAverageValue(
-  (rows ?? [])
-    .map((row) => row[metricKey])
-    .filter((value): value is number => (
-      typeof value === 'number' && Number.isFinite(value)
-    ))
-);
-
-const getAverageFromMetricAliases = (
-  rows: MetricsByJob[string] | undefined,
-  aliases: string[]
-) => {
-  for (const alias of aliases) {
-    const averageValue = getAverageValue(
-      (rows ?? [])
-        .map((row) => row[alias])
-        .filter((value): value is number => (
-          typeof value === 'number' && Number.isFinite(value)
-        ))
-    );
-
-    if (averageValue !== null) {
-      return averageValue;
-    }
+  if (value > 1_000_000_000_000) {
+    return value;
   }
 
-  return null;
+  return value * 1000;
 };
 
-const getPowerConsumptionSummary = ({
-  jobId,
-  metricsByJob,
-  nodePowerRows,
-  cpuPowerRows,
-  gpuPowerRows,
-  memoryPowerRows,
-}: {
-  jobId: string;
-  metricsByJob: MetricsByJob | undefined;
-  nodePowerRows: PowerMetricRow[] | undefined;
-  cpuPowerRows: PowerMetricRow[] | undefined;
-  gpuPowerRows: PowerMetricRow[] | undefined;
-  memoryPowerRows: PowerMetricRow[] | undefined;
-}): PowerConsumptionSummary => {
-  const metricRows = metricsByJob?.[jobId];
+const formatExecutionTime = (milliseconds: number) => {
+  if (!Number.isFinite(milliseconds)) {
+    return '0 sec';
+  }
+
+  if (milliseconds < 1000) {
+    return `${Math.round(milliseconds).toLocaleString()} ms`;
+  }
+
+  if (milliseconds < 60_000) {
+    return `${(milliseconds / 1000).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+    })} sec`;
+  }
+
+  if (milliseconds < 3_600_000) {
+    return `${(milliseconds / 60_000).toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+    })} min`;
+  }
+
+  return `${(milliseconds / 3_600_000).toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+  })} hr`;
+};
+
+const buildExecutionTimeTicks = (series: DrawerMetricSeriesPoint[]) => {
+  const maxTime = Math.max(0, ...series.map((point) => point.x));
+  const tickValues = [0, 0.25, 0.5, 0.75, 1].map((fraction) => maxTime * fraction);
 
   return {
-    nodePower: getAverageFromMetricAliases(metricRows, [
-      'nersc_ldms_node_power',
-    ]) ?? getAverageFromRows(nodePowerRows, 'node_power'),
-    cpuPower: getAverageFromMetricAliases(metricRows, [
-      'nersc_ldms_cpu_power',
-    ]) ?? getAverageFromRows(cpuPowerRows, 'cpu_power'),
-    gpuPower: getAverageFromMetricAliases(metricRows, [
-      'nersc_ldms_dcgm_power_usage',
-      'nersc_ldms_gpu_power',
-    ]) ?? getAverageFromRows(gpuPowerRows, 'gpu_power'),
-    memoryPower: getAverageFromMetricAliases(metricRows, [
-      'nersc_ldms_memory_power',
-    ]) ?? getAverageFromRows(memoryPowerRows, 'memory_power'),
+    tickValues,
+    tickText: tickValues.map(formatExecutionTime),
   };
 };
 
-function AverageMetricRow({
+const buildConstantMetricSeries = (value: number | null, sampleCount = 8): DrawerMetricSeriesPoint[] => {
+  if (value === null || !Number.isFinite(value)) {
+    return [];
+  }
+
+  return Array.from({ length: sampleCount }, (_, index) => ({
+    x: index * 1000,
+    y: value,
+  }));
+};
+
+const buildMockGpuUtilizationSeries = (
+  jobId: string,
+  metricsByJob: MetricsByJob | undefined
+): DrawerMetricSeriesPoint[] => (
+  metricsByJob?.[jobId] ?? []
+).map((row, index) => ({
+  x: Number(row['Floored Relative Time']) || index + 1,
+  y: Number(row.nersc_ldms_dcgm_gpu_utilization),
+})).filter((point) => Number.isFinite(point.y));
+
+const normalizeRelativeTimeSeries = (
+  series: DrawerMetricSeriesPoint[]
+): DrawerMetricSeriesPoint[] => {
+  if (series.length <= 1) {
+    return series.map((point) => ({ ...point, x: 0 }));
+  }
+
+  const xValues = series.map((point) => point.x).filter((value) => Number.isFinite(value));
+  const elapsedTimeValues = xValues.map(toExecutionTimeMs);
+  const minX = Math.min(...elapsedTimeValues);
+  const maxX = Math.max(...elapsedTimeValues);
+  const span = maxX - minX;
+
+  if (!Number.isFinite(span) || span <= 0) {
+    const denominator = Math.max(1, series.length - 1);
+
+    return series.map((point, index) => ({
+      ...point,
+      x: (index / denominator) * 1000,
+    }));
+  }
+
+  return series.map((point) => ({
+    ...point,
+    x: Math.max(0, toExecutionTimeMs(point.x) - minX),
+  }));
+};
+
+function PerformanceLineChart({
   label,
+  loading = false,
+  series,
   value,
   unit,
 }: {
   label: string;
+  loading?: boolean;
+  series: DrawerMetricSeriesPoint[];
   value: number | null;
   unit: string;
 }) {
-  return (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 2,
-        py: 1,
-      }}
-    >
-      <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>
-        Avg. {label}
-      </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          ...SIDE_PANEL_VALUE_SX,
-          color: value === null ? '#94a3b8' : '#111827',
-          fontVariantNumeric: 'tabular-nums',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {formatSnapshotValue(value, unit)}
-      </Typography>
-    </Box>
+  const hasSeries = series.length > 0;
+  const chartSeries = normalizeRelativeTimeSeries(
+    hasSeries ? series : buildConstantMetricSeries(value)
   );
-}
+  const executionTimeTicks = buildExecutionTimeTicks(chartSeries);
+  const isGpuUtilization = label === 'GPU utilization';
+  const valueFractionDigits = isGpuUtilization && unit === '%' ? 3 : 1;
+  const plotValueFormat = isGpuUtilization && unit === '%' ? '.3f' : '.1f';
 
-function ComputeMetricMedianRow({
-  label,
-  stats,
-  unit,
-}: {
-  label: string;
-  stats: MetricStats;
-  unit: string;
-}) {
   return (
     <Box
       sx={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 2,
-        py: 1,
+        py: 1.25,
       }}
     >
-      <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>
-        {label}
-      </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          ...SIDE_PANEL_VALUE_SX,
-          color: stats.median === null ? '#94a3b8' : '#111827',
-          fontVariantNumeric: 'tabular-nums',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {formatSnapshotValue(stats.median, unit)}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 0.75 }}>
+        <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>
+          {label}
+        </Typography>
+        {!loading && (
+          <Typography
+            variant="body2"
+            sx={{
+              ...SIDE_PANEL_VALUE_SX,
+              color: value === null ? '#94a3b8' : '#111827',
+              fontVariantNumeric: 'tabular-nums',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Avg. {formatSnapshotValue(value, unit, valueFractionDigits)}
+          </Typography>
+        )}
+      </Box>
+      {loading ? (
+        <CircularProgress size={16} thickness={5} sx={{ color: PRIMARY_ACTION_COLOR }} />
+      ) : chartSeries.length ? (
+        <Box
+          sx={{
+            height: 142,
+            width: '100%',
+            border: `1px solid ${SECTION_BORDER_COLOR}`,
+            borderRadius: 1,
+            p: 1,
+          }}
+        >
+          <Plot
+            data={[{
+              x: chartSeries.map((point) => point.x),
+              y: chartSeries.map((point) => point.y),
+              type: 'scatter',
+              mode: 'lines',
+              line: {
+                color: isGpuUtilization ? '#1d4ed8' : '#16a34a',
+                width: 2,
+                shape: 'linear',
+              },
+              customdata: chartSeries.map((point) => formatExecutionTime(point.x)),
+              hovertemplate: `Execution Time: %{customdata}<br>${label}: %{y:${plotValueFormat}}${unit === '%' ? '%' : ` ${unit}`}<extra></extra>`,
+            }]}
+            layout={{
+              autosize: true,
+              margin: { l: 34, r: 8, t: 4, b: 30 },
+              paper_bgcolor: 'rgba(0,0,0,0)',
+              plot_bgcolor: 'rgba(0,0,0,0)',
+              xaxis: {
+                title: { text: 'Execution Time', font: { size: 10 } },
+                range: [0, Math.max(1, ...chartSeries.map((point) => point.x))],
+                showgrid: false,
+                zeroline: false,
+                tickvals: executionTimeTicks.tickValues,
+                ticktext: executionTimeTicks.tickText,
+                tickfont: { size: 10, color: '#64748b' },
+              },
+              yaxis: {
+                ticksuffix: unit === '%' ? '%' : '',
+                showgrid: true,
+                gridcolor: '#e5e7eb',
+                zeroline: false,
+                tickfont: { size: 10, color: '#64748b' },
+              },
+              showlegend: false,
+            }}
+            config={{ displayModeBar: false, responsive: true }}
+            style={{ width: '100%', height: '100%' }}
+            useResizeHandler
+          />
+        </Box>
+      ) : (
+        <Typography
+          variant="body2"
+          sx={{
+            ...SIDE_PANEL_VALUE_SX,
+            color: '#94a3b8',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          No samples available
+        </Typography>
+      )}
     </Box>
   );
 }
 
 function ComputePerformanceCard({
-  snapshot,
-  nodePower,
+  metricsSummary,
+  metricsStatus,
+  originalError,
+  isRealData,
 }: {
-  snapshot: PerformanceSnapshot;
-  nodePower: number | null;
+  metricsSummary: Pick<JobMetricsSummary, 'avgGpuUtilization' | 'avgCpuPower' | 'error' | 'series'> | null;
+  metricsStatus: 'idle' | 'loading' | 'success' | 'failed';
+  originalError?: string | null;
+  isRealData: boolean;
 }) {
+  const isLoading = isRealData && !metricsSummary && metricsStatus !== 'failed';
+  const errorMessage = originalError ?? metricsSummary?.error ?? null;
+  const hasError = metricsStatus === 'failed' || Boolean(errorMessage);
+  const hasUnavailableValue = !isLoading && [
+    metricsSummary?.avgGpuUtilization,
+    metricsSummary?.avgCpuPower,
+  ].some((value) => value === null || value === undefined);
+  const overviewStatus = hasError ? 'error' : hasUnavailableValue ? 'unavailable' : null;
+
   return (
     <Paper
       elevation={0}
@@ -535,25 +544,41 @@ function ComputePerformanceCard({
         mb: 2.5,
       }}
     >
-      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827', mb: 1 }}>
-        Performance Overview
-      </Typography>
+      <Box sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827' }}>
+          Performance Overview
+        </Typography>
+        {overviewStatus && (
+          <Chip
+            color={overviewStatus === 'error' ? 'error' : 'default'}
+            label={overviewStatus}
+            size="small"
+            variant="outlined"
+          />
+        )}
+      </Box>
       <Divider sx={{ mb: 0.5 }} />
       <Stack divider={<Divider flexItem />} spacing={0}>
-        {PERFORMANCE_SNAPSHOT_ROWS.map((row) => (
-          <ComputeMetricMedianRow
-            key={row.key}
-            label={row.label}
-            stats={snapshot[row.key]}
-            unit={row.unit}
-          />
-        ))}
-        <AverageMetricRow
-          label="Node Power"
-          value={nodePower}
+        <PerformanceLineChart
+          label="GPU utilization"
+          loading={isLoading}
+          series={metricsSummary?.series?.gpuUtilization ?? []}
+          value={metricsSummary?.avgGpuUtilization ?? null}
+          unit="%"
+        />
+        <PerformanceLineChart
+          label="CPU power"
+          loading={isLoading}
+          series={metricsSummary?.series?.cpuPower ?? []}
+          value={metricsSummary?.avgCpuPower ?? null}
           unit="W"
         />
       </Stack>
+      {errorMessage && (
+        <Alert severity="error" sx={{ mt: 1.5 }}>
+          {errorMessage}
+        </Alert>
+      )}
     </Paper>
   );
 }
@@ -929,7 +954,7 @@ function JobTableToolbar({
   setPanelAnchorEl,
   columns,
   columnVisibilityModel,
-  maxSelectionTooltipOpen,
+  compareJobsTooltipOpen,
   selectedJobCount,
   onCompareJobMetrics,
   onColumnVisibilityModelChange,
@@ -939,7 +964,7 @@ function JobTableToolbar({
   setPanelAnchorEl: (element: HTMLDivElement | null) => void;
   columns: GridColDef[];
   columnVisibilityModel: GridColumnVisibilityModel;
-  maxSelectionTooltipOpen: boolean;
+  compareJobsTooltipOpen: boolean;
   selectedJobCount: number;
   onCompareJobMetrics: () => void;
   onColumnVisibilityModelChange: (model: GridColumnVisibilityModel) => void;
@@ -1024,10 +1049,13 @@ function JobTableToolbar({
         }}
       >
         <Tooltip
-          open={maxSelectionTooltipOpen}
-          title="Max 5 jobs can be compared"
+          open={compareJobsTooltipOpen}
+          title="Please select at least 1 job"
           placement="top"
           arrow
+          disableFocusListener
+          disableHoverListener
+          disableTouchListener
         >
           <Button
             size="medium"
@@ -1076,15 +1104,31 @@ function UserJobPerformance() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [activeDrawerJobId, setActiveDrawerJobId] = useState<string | null>(null);
   const [maxSelectionTooltipOpen, setMaxSelectionTooltipOpen] = useState(false);
+  const [compareJobsTooltipOpen, setCompareJobsTooltipOpen] = useState(false);
+  const [maxSelectionTooltipAnchor, setMaxSelectionTooltipAnchor] = useState<VirtualElement | null>(null);
+  const compareJobsTooltipTimeoutRef = useRef<number | null>(null);
+  const maxSelectionTooltipTimeoutRef = useRef<number | null>(null);
   const [rowSelectionModel, setRowSelectionModel] = useState<GridRowSelectionModel>([]);
   const [panelAnchorEl, setPanelAnchorEl] = useState<HTMLDivElement | null>(null);
   const [columnVisibilityModel, setColumnVisibilityModel] =
     useState<GridColumnVisibilityModel>(() => ({ ...DEFAULT_COLUMN_VISIBILITY_MODEL }));
   const [columnOrder, setColumnOrder] = useState<string[]>(() => [...DEFAULT_COLUMN_ORDER]);
-  const [selectedUserFilter, setSelectedUserFilter] = useState('');
+  const [selectedUserFilter, setSelectedUserFilter] = useState(
+    () => readSelectedUserBrowserCache()
+  );
   const [selectedJobsFilter, setSelectedJobsFilter] = useState('');
-  const [appliedUserFilter, setAppliedUserFilter] = useState('');
-  const [appliedJobsFilter, setAppliedJobsFilter] = useState('');
+  const [loadedJobCacheEntries, setLoadedJobCacheEntries] = useState(() => readLoadedJobsBrowserCache());
+  const [loadedJobMetricsCacheEntries, setLoadedJobMetricsCacheEntries] = useState(
+    () => readLoadedJobMetricsBrowserCache()
+  );
+  const [isLoadingSelectedJobs, setIsLoadingSelectedJobs] = useState(false);
+  const [loadJobsError, setLoadJobsError] = useState<string | null>(null);
+  const [jobMetricsSummaryStatusByJob, setJobMetricsSummaryStatusByJob] = useState<
+    Record<string, 'idle' | 'loading' | 'success' | 'failed'>
+  >({});
+  const [jobMetricsSummaryErrorByJob, setJobMetricsSummaryErrorByJob] = useState<
+    Record<string, string>
+  >({});
 
   const userJobsData = useDataFromSource(
     'data/user-job-performance/user-jobs.json'
@@ -1095,22 +1139,6 @@ function UserJobPerformance() {
   const metricsByJob = useDataFromSource(
     'data/user-job-performance/metrics-data.json'
   ) as MetricsByJob | undefined;
-  const nodePowerRows = useDataFromSource(
-    'data/user-job-performance/pmt-export-node-power-51567294.json'
-  ) as PowerMetricRow[] | undefined;
-  const cpuPowerRows = useDataFromSource(
-    'data/user-job-performance/pmt-export-cpu-power-51567294 (1).json'
-  ) as PowerMetricRow[] | undefined;
-  const gpuPowerRows = useDataFromSource(
-    'data/user-job-performance/pmt-export-gpu-power-51567294.json'
-  ) as PowerMetricRow[] | undefined;
-  const memoryPowerRows = useDataFromSource(
-    'data/user-job-performance/pmt-export-mem-power-51567294 (1).json'
-  ) as PowerMetricRow[] | undefined;
-  const {
-    summariesByJob: irisGpuUtilizationByJob,
-    status: irisGpuUtilizationStatus,
-  } = useIrisGpuUtilization(Boolean(irisJobsData?.length));
 
   const openActionsMenu = useCallback((event: MouseEvent<HTMLElement>, jobId: string) => {
     event.stopPropagation();
@@ -1181,71 +1209,258 @@ function UserJobPerformance() {
     () => buildRecentJobPerformanceRows({
       legacyJobs: userJobsData,
       irisJobs: irisJobsData,
+      loadedJobs: loadedJobCacheEntries.map((entry) => entry.job),
       metricsByJob,
-      irisGpuUtilizationByJob,
-      irisGpuUtilizationStatus,
     }),
-    [irisGpuUtilizationByJob, irisGpuUtilizationStatus, irisJobsData, metricsByJob, userJobsData]
+    [
+      irisJobsData,
+      loadedJobCacheEntries,
+      metricsByJob,
+      userJobsData,
+    ]
+  );
+  const loadedJobIdLookup = useMemo(
+    () => new Set(loadedJobCacheEntries.map((entry) => entry.jobId)),
+    [loadedJobCacheEntries]
   );
   const displayedJobData = useMemo(() => {
-    const normalizedUserFilter = appliedUserFilter.trim().toLowerCase();
-    const requestedJobIds = appliedJobsFilter
-      .split(',')
-      .map((jobId) => jobId.trim().toLowerCase())
-      .filter(Boolean);
-    const requestedJobIdLookup = new Set(requestedJobIds);
-    const userFilteredJobs = normalizedUserFilter === ''
-      ? jobData
-      : jobData.filter((job) => job.user.toLowerCase().includes(normalizedUserFilter));
+    const loadedJobs = loadedJobCacheEntries
+      .map((entry) => jobData.find((job) => job.id === entry.jobId) ?? null)
+      .filter((job): job is typeof jobData[number] => Boolean(job));
+    const remainingJobs = jobData.filter((job) => !loadedJobIdLookup.has(job.id));
 
-    if (!requestedJobIdLookup.size) {
-      return userFilteredJobs;
-    }
-
-    return userFilteredJobs.filter((job) => requestedJobIdLookup.has(job.jobId.toLowerCase()));
-  }, [appliedJobsFilter, appliedUserFilter, jobData]);
+    return [...loadedJobs, ...remainingJobs];
+  }, [jobData, loadedJobCacheEntries, loadedJobIdLookup]);
   const pastMonthJobCounts = useMemo(
     () => buildPastMonthJobCounts(displayedJobData),
     [displayedJobData]
   );
-  const loadSelectedJobs = () => {
-    setAppliedUserFilter(selectedUserFilter);
-    setAppliedJobsFilter(selectedJobsFilter);
+  const loadSelectedJobs = async () => {
     setRowSelectionModel([]);
     setActiveDrawerJobId(null);
+    setLoadJobsError(null);
+
+    const requestedJobIds = parseSelectedJobIds(selectedJobsFilter);
+
+    if (!requestedJobIds.length) {
+      return;
+    }
+
+    setIsLoadingSelectedJobs(true);
+
+    try {
+      const results = await Promise.all(
+        requestedJobIds.map(async (jobId) => {
+          const jobResult = await fetchNerscJobById(jobId)
+            .then((job) => ({ status: 'fulfilled' as const, value: job }))
+            .catch((reason: unknown) => ({ status: 'rejected' as const, reason }));
+
+          return { jobId, jobResult };
+        })
+      );
+      const successfulJobs = results
+        .filter((result): result is {
+          jobId: string;
+          jobResult: PromiseFulfilledResult<Awaited<ReturnType<typeof fetchNerscJobById>>>;
+        } => result.jobResult.status === 'fulfilled')
+        .map(({ jobResult }) => jobResult.value);
+      const failedResults = results.flatMap(({ jobId, jobResult }) => {
+        const errors: string[] = [];
+
+        if (jobResult.status === 'rejected') {
+          errors.push(`${jobId}: ${jobResult.reason instanceof Error ? jobResult.reason.message : 'Unable to load job.'}`);
+        }
+
+        return errors;
+      });
+
+      if (successfulJobs.length) {
+        mergeLoadedJobsBrowserCache(successfulJobs);
+        setLoadedJobCacheEntries(readLoadedJobsBrowserCache());
+      }
+
+      if (failedResults.length) {
+        setLoadJobsError(failedResults.join(' | '));
+      }
+    } finally {
+      setIsLoadingSelectedJobs(false);
+    }
+  };
+  const clearLoadedJobPerformanceCache = () => {
+    clearLoadedJobPerformanceBrowserCache();
+    setLoadedJobCacheEntries(readLoadedJobsBrowserCache());
+    setLoadedJobMetricsCacheEntries(readLoadedJobMetricsBrowserCache());
+    setJobMetricsSummaryStatusByJob({});
+    setJobMetricsSummaryErrorByJob({});
+    setRowSelectionModel([]);
+    setActiveDrawerJobId(null);
+    setLoadJobsError(null);
   };
   const activeJob = jobData.find((job) => job.id === activeDrawerJobId) ?? null;
-  const selectedJobCount = rowSelectionModel.length;
-  const activeJobMetricsByJob = activeJob?.gpuUtilizationStatus
-    ? undefined
-    : metricsByJob;
-  const performanceSummary = activeJob
-    ? getJobPerformanceSummary(activeJob, activeJobMetricsByJob)
-    : null;
-  const activeJobComputeMetricsExport = useJobComputeMetricsExport(activeJob?.jobId ?? null);
-  const computeMetricsByJob = useMemo<ComputeMetricsByJob | undefined>(
-    () => (activeJob && activeJobComputeMetricsExport
-      ? { [activeJob.jobId]: activeJobComputeMetricsExport }
-      : undefined),
-    [activeJob, activeJobComputeMetricsExport]
+  const activeLoadedJobCacheEntry = useMemo(
+    () => (
+      activeDrawerJobId
+        ? loadedJobCacheEntries.find((entry) => entry.jobId === activeDrawerJobId) ?? null
+        : null
+    ),
+    [activeDrawerJobId, loadedJobCacheEntries]
   );
-  const computePerformanceSnapshot = activeJob && performanceSummary
-    ? buildComputePerformanceSnapshot({
-      jobId: activeJob.jobId,
-      baseSnapshot: performanceSummary.snapshot,
-      computeMetricsByJob,
-    })
+  const selectedJobCount = rowSelectionModel.length;
+  const showCompareJobsTooltip = useCallback(() => {
+    setCompareJobsTooltipOpen(true);
+    if (compareJobsTooltipTimeoutRef.current !== null) {
+      window.clearTimeout(compareJobsTooltipTimeoutRef.current);
+    }
+    compareJobsTooltipTimeoutRef.current = window.setTimeout(() => {
+      setCompareJobsTooltipOpen(false);
+      compareJobsTooltipTimeoutRef.current = null;
+    }, 5000);
+  }, []);
+  const showMaxSelectionTooltip = useCallback(() => {
+    setMaxSelectionTooltipOpen(true);
+    if (maxSelectionTooltipTimeoutRef.current !== null) {
+      window.clearTimeout(maxSelectionTooltipTimeoutRef.current);
+    }
+    maxSelectionTooltipTimeoutRef.current = window.setTimeout(() => {
+      setMaxSelectionTooltipOpen(false);
+      maxSelectionTooltipTimeoutRef.current = null;
+    }, 5000);
+  }, []);
+  const updateMaxSelectionTooltipPosition = useCallback((
+    eventTarget: EventTarget,
+    fallbackElement: HTMLElement
+  ) => {
+    const targetElement = eventTarget instanceof Element ? eventTarget : null;
+    const checkboxElement = targetElement?.closest('.MuiCheckbox-root') ??
+      fallbackElement.querySelector('.MuiCheckbox-root');
+    const anchorElement = checkboxElement instanceof HTMLElement
+      ? checkboxElement
+      : fallbackElement;
+    setMaxSelectionTooltipAnchor({
+      contextElement: anchorElement,
+      getBoundingClientRect: () => anchorElement.getBoundingClientRect(),
+    });
+  }, []);
+  const compareSelectedJobMetrics = useCallback(() => {
+    const selectedJobIds = rowSelectionModel.map((jobId) => String(jobId)).slice(0, 5);
+
+    if (!selectedJobIds.length) {
+      showCompareJobsTooltip();
+      return;
+    }
+
+    setCompareJobsTooltipOpen(false);
+    navigate({
+      to: '/user-job-performance-alphaver/compare',
+      search: { jobIds: selectedJobIds.join(',') },
+    });
+  }, [navigate, rowSelectionModel, showCompareJobsTooltip]);
+  const activeJobMetricsSummary = useMemo(
+    () => (
+      activeJob
+        ? loadedJobMetricsCacheEntries.find((entry) => entry.jobId === activeJob.jobId)?.summary ?? null
+        : null
+    ),
+    [activeJob, loadedJobMetricsCacheEntries]
+  );
+  const activeJobMetricsSummaryStatus = activeJob
+    ? jobMetricsSummaryStatusByJob[activeJob.jobId] ?? 'idle'
+    : 'idle';
+  const activeJobMetricsSummaryError = activeJob
+    ? jobMetricsSummaryErrorByJob[activeJob.jobId] ?? null
     : null;
-  const powerConsumptionSummary = activeJob
-    ? getPowerConsumptionSummary({
-      jobId: activeJob.jobId,
-      metricsByJob,
-      nodePowerRows,
-      cpuPowerRows,
-      gpuPowerRows,
-      memoryPowerRows,
+  const activeJobUsesRealData = activeJob?.dataSource === 'real';
+  const activeMockMetricsSummary = useMemo(() => {
+    if (!activeJob || activeJobUsesRealData) {
+      return null;
+    }
+
+    const summary = getJobPerformanceSummary(
+      activeJob,
+      activeJob.gpuUtilizationStatus ? undefined : metricsByJob
+    );
+    const gpuUtilizationSeries = buildMockGpuUtilizationSeries(activeJob.jobId, metricsByJob);
+
+    return {
+      avgGpuUtilization: summary.snapshot.gpuUtilization.avg,
+      avgCpuPower: null,
+      series: {
+        gpuUtilization: gpuUtilizationSeries,
+        cpuPower: [],
+      },
+    };
+  }, [activeJob, activeJobUsesRealData, metricsByJob]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!activeJob?.jobId || !activeJobUsesRealData || activeJobMetricsSummary) {
+      return () => {
+        isActive = false;
+      };
+    }
+
+    setJobMetricsSummaryStatusByJob((currentStatus) => (
+      currentStatus[activeJob.jobId] === 'loading'
+        ? currentStatus
+        : { ...currentStatus, [activeJob.jobId]: 'loading' }
+    ));
+
+    fetchJobMetricsSummary(activeJob.jobId, {
+      machineId: typeof activeLoadedJobCacheEntry?.job.machine === 'string'
+        ? activeLoadedJobCacheEntry.job.machine
+        : undefined,
+      userId: selectedUserFilter.trim() || (
+        typeof activeLoadedJobCacheEntry?.job.user === 'string'
+          ? activeLoadedJobCacheEntry.job.user
+          : undefined
+      ),
     })
-    : null;
+      .then(() => {
+        if (!isActive) {
+          return;
+        }
+
+        setLoadedJobMetricsCacheEntries(readLoadedJobMetricsBrowserCache());
+        setJobMetricsSummaryErrorByJob((currentErrors) => {
+          const nextErrors = { ...currentErrors };
+          delete nextErrors[activeJob.jobId];
+          return nextErrors;
+        });
+        setJobMetricsSummaryStatusByJob((currentStatus) => ({
+          ...currentStatus,
+          [activeJob.jobId]: 'success',
+        }));
+      })
+      .catch((error: unknown) => {
+        if (!isActive) {
+          return;
+        }
+
+        setJobMetricsSummaryErrorByJob((currentErrors) => ({
+          ...currentErrors,
+          [activeJob.jobId]: error instanceof Error ? error.message : String(error),
+        }));
+        setJobMetricsSummaryStatusByJob((currentStatus) => ({
+          ...currentStatus,
+          [activeJob.jobId]: 'failed',
+        }));
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeJob, activeJobMetricsSummary, activeJobUsesRealData, activeLoadedJobCacheEntry, selectedUserFilter]);
+
+  useEffect(() => () => {
+    if (compareJobsTooltipTimeoutRef.current !== null) {
+      window.clearTimeout(compareJobsTooltipTimeoutRef.current);
+    }
+    if (maxSelectionTooltipTimeoutRef.current !== null) {
+      window.clearTimeout(maxSelectionTooltipTimeoutRef.current);
+    }
+  }, []);
+
   // Table columns definition
   const columns = useMemo<GridColDef[]>(() => [
     {
@@ -1259,13 +1474,28 @@ function UserJobPerformance() {
           to="/user-job-performance-alphaver/$id"
           params={{ id: String(params.row.jobId) }}
           style={{
+            alignItems: 'center',
             color: PRIMARY_ACTION_COLOR,
+            display: 'inline-flex',
+            gap: 6,
             fontWeight: 500,
             textAlign: 'left',
             cursor: 'pointer',
             textDecoration: 'none',
           }}
         >
+          {params.row.dataSource === 'real' && (
+            <Box
+              component="span"
+              sx={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                bgcolor: '#2563EB',
+                flexShrink: 0,
+              }}
+            />
+          )}
           {String(params.value)}
         </RouterLink>
       ),
@@ -1279,6 +1509,17 @@ function UserJobPerformance() {
     {
       field: 'submitTime',
       headerName: 'Submit time',
+      minWidth: 168,
+      flex: 1,
+      renderCell: (params: GridRenderCellParams) => (
+        <Tooltip title={formatFullDateTime(params.value as string)} arrow>
+          <Typography variant="body2">{formatShortDateTime(params.value as string)}</Typography>
+        </Tooltip>
+      ),
+    },
+    {
+      field: 'startTime',
+      headerName: 'Start Time',
       minWidth: 168,
       flex: 1,
       renderCell: (params: GridRenderCellParams) => (
@@ -1325,7 +1566,7 @@ function UserJobPerformance() {
     },
     {
       field: 'executionTime',
-      headerName: 'Run Time',
+      headerName: 'Run Duration',
       minWidth: 104,
       flex: 0.6,
     },
@@ -1472,9 +1713,9 @@ function UserJobPerformance() {
         setPanelAnchorEl={handlePanelAnchorElChange}
         columns={orderedColumns}
         columnVisibilityModel={columnVisibilityModel}
-        maxSelectionTooltipOpen={maxSelectionTooltipOpen}
+        compareJobsTooltipOpen={compareJobsTooltipOpen}
         selectedJobCount={selectedJobCount}
-        onCompareJobMetrics={() => navigate({ to: '/user-job-performance-alphaver/compare' })}
+        onCompareJobMetrics={compareSelectedJobMetrics}
         onColumnVisibilityModelChange={setColumnVisibilityModel}
         onMoveColumn={moveColumn}
         onResetColumnSettings={resetColumnSettings}
@@ -1482,12 +1723,12 @@ function UserJobPerformance() {
     ),
     [
       columnVisibilityModel,
+      compareJobsTooltipOpen,
+      compareSelectedJobMetrics,
       handlePanelAnchorElChange,
       moveColumn,
-      navigate,
       orderedColumns,
       resetColumnSettings,
-      maxSelectionTooltipOpen,
       selectedJobCount,
     ]
   );
@@ -1563,7 +1804,11 @@ function UserJobPerformance() {
               size="small"
               label="Select user"
               value={selectedUserFilter}
-              onChange={(event) => setSelectedUserFilter(event.target.value)}
+              onChange={(event) => {
+                const userId = event.target.value;
+                setSelectedUserFilter(userId);
+                writeSelectedUserBrowserCache(userId);
+              }}
               sx={{ minWidth: { xs: '100%', sm: 220 } }}
             />
             <TextField
@@ -1578,6 +1823,7 @@ function UserJobPerformance() {
             <Button
               variant="contained"
               onClick={loadSelectedJobs}
+              disabled={isLoadingSelectedJobs}
               sx={{
                 minHeight: 40,
                 px: 2.5,
@@ -1590,9 +1836,32 @@ function UserJobPerformance() {
                 },
               }}
             >
-              Load Jobs
+              {isLoadingSelectedJobs ? 'Loading Jobs...' : 'Load Jobs'}
+            </Button>
+            <Button
+              variant="text"
+              startIcon={<RefreshIcon />}
+              onClick={clearLoadedJobPerformanceCache}
+              disabled={isLoadingSelectedJobs}
+              sx={{
+                minHeight: 40,
+                px: 1.5,
+                textTransform: 'none',
+                fontWeight: 700,
+                color: TERTIARY_ACTION_COLOR,
+                '&:hover': {
+                  bgcolor: PRIMARY_ACTION_HOVER_BACKGROUND,
+                },
+              }}
+            >
+              Clear cache
             </Button>
           </Box>
+          {loadJobsError && (
+            <Alert severity="warning" sx={{ mx: 2, mb: 2 }}>
+              {loadJobsError}
+            </Alert>
+          )}
         </Paper>
 
         <JobsPastMonthBarChart data={pastMonthJobCounts} />
@@ -1609,6 +1878,23 @@ function UserJobPerformance() {
               borderRadius: 2,
             }}
           >
+            {maxSelectionTooltipAnchor && (
+              <Tooltip
+                open={maxSelectionTooltipOpen}
+                title="Max 5 jobs can be compared"
+                placement="right"
+                arrow
+                disableFocusListener
+                disableHoverListener
+                disableTouchListener
+                PopperProps={{ anchorEl: maxSelectionTooltipAnchor }}
+              >
+                <Box
+                  component="span"
+                  sx={{ display: 'inline-block' }}
+                />
+              </Tooltip>
+            )}
             {userJobsData === undefined && irisJobsData === undefined ? (
               <Box sx={{ p: 3 }}>
                 <Typography>Loading job data...</Typography>
@@ -1624,17 +1910,30 @@ function UserJobPerformance() {
                 disableColumnSelector
                 disableRowSelectionOnClick
                 getRowId={(row) => row.id}
-                getRowClassName={(params) => (
-                  params.indexRelativeToCurrentPage % 2 === 1 ? 'alternate-job-row' : ''
-                )}
+                getRowClassName={(params) => [
+                  params.indexRelativeToCurrentPage % 2 === 1 ? 'alternate-job-row' : '',
+                  loadedJobIdLookup.has(params.row.id) ? 'loaded-job-row' : '',
+                ].filter(Boolean).join(' ')}
                 autoHeight
                 rowSelectionModel={rowSelectionModel}
+                onCellClick={(params, event) => {
+                  if (params.field === '__check__') {
+                    updateMaxSelectionTooltipPosition(event.target, event.currentTarget);
+                  }
+                }}
+                onColumnHeaderClick={(params, event) => {
+                  if (params.field === '__check__') {
+                    updateMaxSelectionTooltipPosition(event.target, event.currentTarget);
+                  }
+                }}
                 onRowSelectionModelChange={(newSelectionModel) => {
                   if (newSelectionModel.length > 5) {
-                    setMaxSelectionTooltipOpen(true);
-                    window.setTimeout(() => setMaxSelectionTooltipOpen(false), 1800);
+                    showMaxSelectionTooltip();
                   }
                   const cappedSelection = newSelectionModel.slice(0, 5);
+                  if (cappedSelection.length) {
+                    setCompareJobsTooltipOpen(false);
+                  }
                   setRowSelectionModel(cappedSelection);
                 }}
                 columnVisibilityModel={columnVisibilityModel}
@@ -1756,7 +2055,7 @@ function UserJobPerformance() {
           },
         }}
       >
-        {activeJob && performanceSummary && computePerformanceSnapshot && powerConsumptionSummary && (
+        {activeJob && (
           <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             {(() => {
               const statusTone = getJobStatusTone(activeJob.jobStatus);
@@ -1826,6 +2125,13 @@ function UserJobPerformance() {
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Start time</Typography>
+                    <Typography variant="body2" sx={{ ...SIDE_PANEL_VALUE_SX, textAlign: 'right' }}>
+                      {formatFullDateTime(activeJob.startTime)}
+                    </Typography>
+                  </Box>
+                  <Divider />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
                     <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>End time</Typography>
                     <Typography variant="body2" sx={{ ...SIDE_PANEL_VALUE_SX, textAlign: 'right' }}>
                       {formatFullDateTime(activeJob.endTime)}
@@ -1833,14 +2139,14 @@ function UserJobPerformance() {
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Wait time</Typography>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Total wait time</Typography>
                     <Typography variant="body2" sx={SIDE_PANEL_VALUE_SX}>
                       {activeJob.waitTime}
                     </Typography>
                   </Box>
                   <Divider />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Run time</Typography>
+                    <Typography variant="body2" sx={SIDE_PANEL_LABEL_SX}>Total run time</Typography>
                     <Typography variant="body2" sx={SIDE_PANEL_VALUE_SX}>
                       {activeJob.executionTime}
                     </Typography>
@@ -1965,8 +2271,10 @@ function UserJobPerformance() {
               </Paper>
 
               <ComputePerformanceCard
-                snapshot={computePerformanceSnapshot}
-                nodePower={powerConsumptionSummary.nodePower}
+                metricsSummary={activeJobUsesRealData ? activeJobMetricsSummary : activeMockMetricsSummary}
+                metricsStatus={activeJobMetricsSummaryStatus}
+                originalError={activeJobMetricsSummaryError}
+                isRealData={activeJobUsesRealData}
               />
             </Box>
             </Box>

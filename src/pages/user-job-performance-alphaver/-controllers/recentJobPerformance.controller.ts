@@ -28,6 +28,29 @@ export interface IrisJobData {
   'CPUs used'?: number;
 }
 
+export interface LoadedNerscJobData {
+  account?: string;
+  allocnodes?: number | string;
+  consumedenergy?: number | string;
+  consumedenergyraw?: number | string;
+  created_at?: string;
+  elapsedraw?: number | string;
+  end?: string;
+  jobid?: number | string;
+  jobidraw?: number | string;
+  jobname?: string;
+  machine?: string;
+  nodelist?: string;
+  nnodes?: number | string;
+  partition?: string;
+  qos?: string;
+  start?: string;
+  state?: string;
+  submit?: string;
+  task_id?: string;
+  user?: string;
+}
+
 export interface MetricsRow {
   'Job ID': number;
   'Floored Relative Time': number;
@@ -92,8 +115,10 @@ export interface IrisGpuUtilizationSummary {
 export type IrisGpuUtilizationByJob = Record<string, IrisGpuUtilizationSummary>;
 export type IrisGpuUtilizationFetchStatus = 'idle' | 'loading' | 'success' | 'error';
 export type MetricFetchStatus = 'loading' | 'success' | 'failed';
+export type JobDataSource = 'mock' | 'real';
 
 export interface JobGridRow {
+  dataSource: JobDataSource;
   id: string;
   submitTime: string;
   startTime: string;
@@ -128,6 +153,7 @@ export interface JobPerformanceSummaryInput {
 interface BuildRecentJobRowsInput {
   legacyJobs?: LegacyUserJobData[];
   irisJobs?: IrisJobData[];
+  loadedJobs?: LoadedNerscJobData[];
   metricsByJob?: MetricsByJob;
   irisGpuUtilizationByJob?: IrisGpuUtilizationByJob;
   irisGpuUtilizationStatus?: IrisGpuUtilizationFetchStatus;
@@ -593,6 +619,12 @@ const calculateWaitTime = (submitTime?: string, startTime?: string, fallback?: s
   );
 };
 
+const getFiniteNumber = (value: unknown) => {
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue) ? numericValue : null;
+};
+
 const normalizePartition = (qos: string) => {
   if (qos.includes('shared')) {
     return 'shared_gpu_ss11';
@@ -612,34 +644,6 @@ const generateEnergyStatus = (
   if (energy > 1100) return 'warning';
   return 'medium';
 };
-
-const getIrisAverageGpuUtilization = (
-  jobId: number,
-  irisGpuUtilizationByJob?: IrisGpuUtilizationByJob
-) => {
-  const value = irisGpuUtilizationByJob?.[jobId.toString()]?.avgGpuUtilization;
-
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-};
-
-const getIrisAverageCpuUtilization = (
-  jobId: number,
-  irisGpuUtilizationByJob?: IrisGpuUtilizationByJob
-) => {
-  const value = irisGpuUtilizationByJob?.[jobId.toString()]?.avgCpuUtilization;
-
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-};
-
-const hasIrisGpuUtilizationResponse = (
-  jobId: number,
-  irisGpuUtilizationByJob?: IrisGpuUtilizationByJob
-) => irisGpuUtilizationByJob?.[jobId.toString()] !== undefined;
-
-const hasIrisGpuUtilizationError = (
-  jobId: number,
-  irisGpuUtilizationByJob?: IrisGpuUtilizationByJob
-) => Boolean(irisGpuUtilizationByJob?.[jobId.toString()]?.error);
 
 export const getJobPerformanceSummary = (
   row: JobPerformanceSummaryInput,
@@ -734,6 +738,7 @@ const buildLegacyRow = (
   );
 
   return {
+    dataSource: 'mock',
     id: job['Job ID'].toString(),
     submitTime: job['Start Time'],
     startTime: job['Start Time'],
@@ -764,40 +769,12 @@ const buildLegacyRow = (
 
 const buildIrisRow = (
   job: IrisJobData,
-  index: number,
-  irisGpuUtilizationByJob?: IrisGpuUtilizationByJob,
-  irisGpuUtilizationStatus: IrisGpuUtilizationFetchStatus = 'idle'
+  index: number
 ): JobGridRow => {
-  const fetchedGpuUtilization = getIrisAverageGpuUtilization(
-    job['Job ID'],
-    irisGpuUtilizationByJob
-  );
-  const fetchedCpuUtilization = getIrisAverageCpuUtilization(
-    job['Job ID'],
-    irisGpuUtilizationByJob
-  );
-  const hasGpuUtilizationResponse = hasIrisGpuUtilizationResponse(
-    job['Job ID'],
-    irisGpuUtilizationByJob
-  );
-  const hasGpuUtilizationError = hasIrisGpuUtilizationError(
-    job['Job ID'],
-    irisGpuUtilizationByJob
-  );
-  const gpuUtilizationStatus: MetricFetchStatus = fetchedGpuUtilization !== undefined
-    ? 'success'
-    : hasGpuUtilizationResponse || hasGpuUtilizationError || irisGpuUtilizationStatus === 'error'
-      ? 'failed'
-      : 'loading';
-  const cpuUtilizationStatus: MetricFetchStatus = fetchedCpuUtilization !== undefined
-    ? 'success'
-    : hasGpuUtilizationResponse || hasGpuUtilizationError || irisGpuUtilizationStatus === 'error'
-      ? 'failed'
-      : 'loading';
   const performanceSnapshot = getJobPerformanceSummary(
     {
       jobId: job['Job ID'].toString(),
-      avgGpuUtilization: fetchedGpuUtilization ?? null,
+      avgGpuUtilization: null,
     },
     undefined
   );
@@ -807,6 +784,7 @@ const buildIrisRow = (
   const nodeCount = Number.isFinite(nodeCountRaw) ? Math.round(nodeCountRaw ?? 0) : null;
 
   return {
+    dataSource: 'mock',
     id: job['Job ID'].toString(),
     submitTime: job['Submit Time'] ?? job['Start Time'],
     startTime: job['Start Time'],
@@ -825,23 +803,71 @@ const buildIrisRow = (
       ? formatDurationFromSeconds(job['Elapsed secs'])
       : formatExecutionTime(job['Start Time'], job['End Time']),
     jobStatus: job.State ?? fallbackJobStatuses[index % fallbackJobStatuses.length],
-    avgGpuUtilization: gpuUtilizationStatus === 'success'
-      ? Number(performanceSnapshot.gpuUtilization.toFixed(1))
-      : null,
-    cpuUtilization: cpuUtilizationStatus === 'success'
-      ? Number((fetchedCpuUtilization ?? 0).toFixed(1))
-      : null,
-    gpuMemoryUtilization: gpuUtilizationStatus === 'success'
-      ? Number(performanceSnapshot.memoryUtilization.toFixed(1))
-      : null,
-    gpuUtilizationStatus,
-    cpuUtilizationStatus,
+    avgGpuUtilization: Number(performanceSnapshot.gpuUtilization.toFixed(1)),
+    cpuUtilization: Number(performanceSnapshot.cpuUtilization.toFixed(1)),
+    gpuMemoryUtilization: Number(performanceSnapshot.memoryUtilization.toFixed(1)),
     energyConsumed,
     energyStatus: generateEnergyStatus(energyConsumed),
     qos: job.QOS,
     user: 'N/A',
     partition: normalizePartition(job.QOS.toLowerCase()),
     hostname: 'perlmutter gpu',
+  };
+};
+
+const buildLoadedRow = (
+  job: LoadedNerscJobData,
+  index: number
+): JobGridRow | null => {
+  const rawJobId = job.jobid ?? job.jobidraw;
+
+  if (rawJobId === undefined || rawJobId === null) {
+    return null;
+  }
+
+  const jobId = String(rawJobId);
+  const submitTime = job.submit ?? job.created_at ?? job.start ?? '';
+  const startTime = job.start ?? submitTime;
+  const endTime = job.end ?? '';
+  const nodeCount = getFiniteNumber(job.nnodes) ?? getFiniteNumber(job.allocnodes);
+  const elapsedSeconds = getFiniteNumber(job.elapsedraw);
+  const energyConsumed = getFiniteNumber(job.consumedenergyraw)
+    ?? getFiniteNumber(job.consumedenergy)
+    ?? 0;
+  const nodeHours = nodeCount !== null && elapsedSeconds !== null
+    ? Number(((nodeCount * elapsedSeconds) / 3600).toFixed(2))
+    : 0;
+  const qos = job.qos ?? 'N/A';
+
+  return {
+    dataSource: 'real',
+    id: jobId,
+    submitTime,
+    startTime,
+    endTime,
+    jobId,
+    jobName: job.jobname ?? 'Untitled job',
+    projectId: job.account ?? 'N/A',
+    nodeHours,
+    nodeCount: nodeCount === null ? null : Math.round(nodeCount),
+    waitTime: calculateWaitTime(
+      submitTime,
+      startTime,
+      fallbackWaitTimes[index % fallbackWaitTimes.length]
+    ),
+    executionTime: elapsedSeconds !== null
+      ? formatDurationFromSeconds(elapsedSeconds)
+      : formatExecutionTime(startTime, endTime),
+    jobStatus: job.state ?? fallbackJobStatuses[index % fallbackJobStatuses.length],
+    avgGpuUtilization: null,
+    cpuUtilization: null,
+    gpuMemoryUtilization: null,
+    energyConsumed,
+    energyStatus: generateEnergyStatus(energyConsumed),
+    qos,
+    user: job.user ?? 'N/A',
+    partition: job.partition ?? normalizePartition(qos.toLowerCase()),
+    hostname: job.nodelist ?? job.machine ?? 'perlmutter',
   };
 };
 
@@ -863,9 +889,8 @@ const getSortTimestamp = (row: JobGridRow) => {
 export const buildRecentJobPerformanceRows = ({
   legacyJobs,
   irisJobs,
+  loadedJobs,
   metricsByJob,
-  irisGpuUtilizationByJob,
-  irisGpuUtilizationStatus = 'idle',
 }: BuildRecentJobRowsInput): JobGridRow[] => {
   const mergedRows = new Map<string, JobGridRow>();
 
@@ -875,13 +900,16 @@ export const buildRecentJobPerformanceRows = ({
   });
 
   (irisJobs ?? []).forEach((job, index) => {
-    const row = buildIrisRow(
-      job,
-      index,
-      irisGpuUtilizationByJob,
-      irisGpuUtilizationStatus
-    );
+    const row = buildIrisRow(job, index);
     mergedRows.set(row.id, row);
+  });
+
+  (loadedJobs ?? []).forEach((job, index) => {
+    const row = buildLoadedRow(job, index);
+
+    if (row) {
+      mergedRows.set(row.id, row);
+    }
   });
 
   return Array.from(mergedRows.values()).sort(
@@ -892,7 +920,8 @@ export const buildRecentJobPerformanceRows = ({
 export const findUserJobMetadataById = (
   jobId: string,
   legacyJobs?: LegacyUserJobData[],
-  irisJobs?: IrisJobData[]
+  irisJobs?: IrisJobData[],
+  loadedJobs?: LoadedNerscJobData[]
 ) => {
   const legacyJob = (legacyJobs ?? []).find(
     (job) => job['Job ID'].toString() === jobId
@@ -906,13 +935,37 @@ export const findUserJobMetadataById = (
     (job) => job['Job ID'].toString() === jobId
   );
 
-  if (!irisJob) {
+  if (irisJob) {
+    return {
+      'Job ID': irisJob['Job ID'],
+      Project: irisJob.Project,
+      QOS: irisJob.QOS,
+    };
+  }
+
+  const loadedJob = (loadedJobs ?? []).find((job) => {
+    const loadedJobId = job.jobid ?? job.jobidraw;
+
+    return loadedJobId === undefined || loadedJobId === null
+      ? false
+      : String(loadedJobId) === jobId;
+  });
+
+  if (!loadedJob) {
     return undefined;
   }
 
   return {
-    'Job ID': irisJob['Job ID'],
-    Project: irisJob.Project,
-    QOS: irisJob.QOS,
+    'Job ID': Number(jobId),
+    'Job Name': loadedJob.jobname,
+    'Job Status': loadedJob.state,
+    Project: loadedJob.account ?? 'N/A',
+    Partition: loadedJob.partition ?? 'N/A',
+    QOS: loadedJob.qos ?? 'N/A',
+    User: loadedJob.user ?? 'N/A',
+    Hostname: loadedJob.nodelist ?? loadedJob.machine ?? 'perlmutter',
+    'Start Time': loadedJob.start ?? loadedJob.submit ?? '',
+    'End Time': loadedJob.end ?? '',
+    'Charged Node Hours': 0,
   };
 };

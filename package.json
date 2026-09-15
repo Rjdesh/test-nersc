@@ -5,11 +5,16 @@
   "type": "module",
   "homepage": "https://rjdesh.github.io/test-nersc/",
   "scripts": {
-    "start": "vite",
+    "start": "node dist-server/index.js",
     "dev": "vite",
+    "dev:api": "tsx watch src/server/index.ts",
     "build": "tsc && vite build",
+    "build:root": "tsc && VITE_BASE_URL=/ vite build",
+    "build:container": "npm run build:root && npm run build:api",
+    "build:api": "tsc -p tsconfig.server.json",
     "preview": "vite preview",
-    "deploy": "gh-pages -d dist -e demo",
+    "start:api": "node dist-server/index.js",
+    "deploy": "npm run build && gh-pages -d dist -e demo",
     "style:all": "tsc && npm run lint && npm run prettier",
     "lint": "eslint . '**/*.{js,jsx,ts,tsx}'",
     "lint:fix": "eslint . --fix '**/*.{js,jsx,ts,tsx}'",
@@ -62,6 +67,7 @@
     "lint-staged": "^15.2.10",
     "prettier": "^3.3.3",
     "typescript": "^5.2.2",
+    "tsx": "^4.20.5",
     "vite": "^6.2.1"
   },
   "engines": {

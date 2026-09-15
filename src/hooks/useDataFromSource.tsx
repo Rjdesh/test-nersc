@@ -2,7 +2,7 @@ import * as d3 from 'd3-fetch';
 import { useAppState } from '../context/ContextProvider';
 import { useEffect, useState } from 'react';
 import { openApiModal } from '../context/actions';
-import { cleanPath } from '../utils/queryParams.utils';
+import { cleanPath, cleanUrl } from '../utils/queryParams.utils';
 
 /**
  * Get data from a local source or REST API.
@@ -27,7 +27,7 @@ export const useDataFromSource = (dataSource: string): any => {
       const isExternal = dataSource.startsWith('http');
       const dataSourcePath = isExternal
         ? dataSource
-        : `${basename}/${dataSource}`;
+        : cleanUrl(cleanPath(`${basename}/${dataSource}`));
       let newData: any = [];
       if (fileExtension === 'csv') {
         newData = await d3.csv(dataSourcePath);

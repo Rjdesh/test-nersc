@@ -180,7 +180,7 @@ const getLocalDataSourcePath = (dataSource: string) => {
   const leadingSlash = basePath ? '/' : '';
   const basename = cleanPath(leadingSlash + base + basePath);
 
-  return `${basename}/${dataSource}`;
+  return cleanPath(`${basename}/${dataSource}`);
 };
 
 function useJobComputeMetricsExport(jobId: string | null) {
