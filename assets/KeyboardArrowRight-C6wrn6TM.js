@@ -1,1 +1,0 @@
-import{g as i,h as u,i as d,k as n}from"./index-DfjIlHec.js";var r={},e;function s(){if(e)return r;e=1;var t=i();Object.defineProperty(r,"__esModule",{value:!0}),r.default=void 0;var a=t(u()),o=d();return r.default=(0,a.default)((0,o.jsx)("path",{d:"M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"}),"KeyboardArrowRight"),r}var R=s();const g=n(R);export{g as K};
